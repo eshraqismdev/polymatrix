@@ -1,35 +1,92 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTradingStore, openPosition, closePosition, checkPosition } from "@/lib/store";
 import { analyzeSMC, analyzeOrderflow, buildTradePlan } from "@/lib/smc";
-import type { Candle, Structure } from "@/lib/types";
+import type { Candle } from "@/lib/types";
 import { fmtPrice, fmtTime } from "@/lib/format";
 
 interface ChartProps {
   height?: number;
 }
 
-interface ViewRange {
-  start: number; // candle index
-  end: number;   // candle index
-  priceMin: number;
-  priceMax: number;
+// View state — supports both horizontal and vertical pan/zoom
+interface ViewState {
+  offset: number;            // candles from right edge (horizontal pan)
+  visibleCount: number;      // horizontal zoom (candles visible)
+  autoFitY: boolean;         // true = auto-fit vertical; false = manual
+  priceCenter: number;       // manual price center (when autoFitY=false)
+  priceRange: number;        // manual price range (pMax - pMin)
 }
+
+interface DragState {
+  mode: "pan" | "box" | null;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  startOffset: number;
+  startVisibleCount: number;
+  startPriceCenter: number;
+  startPriceRange: number;
+  startAutoFitY: boolean;
+  moved: boolean;
+}
+
+const MIN_VISIBLE = 15;
+const MAX_VISIBLE = 800;
+const LAYOUT = {
+  padL: 8,
+  padR: 78,
+  padT: 8,
+  padB: 22,
+  volRatio: 0.18,
+  volMin: 0,
+  volMax: 80,
+};
 
 export default function TradingChart({ height = 560 }: ChartProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Hover state (ref to avoid re-renders during mouse move)
   const hoverRef = useRef<{ x: number; y: number; visible: boolean }>({
     x: 0,
     y: 0,
     visible: false,
   });
   const [hoverCandle, setHoverCandle] = useState<Candle | null>(null);
-  const [view, setView] = useState<{ offset: number; visibleCount: number }>({
+  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
+
+  // View state
+  const [view, setView] = useState<ViewState>({
     offset: 0,
     visibleCount: 120,
+    autoFitY: true,
+    priceCenter: 0,
+    priceRange: 0,
   });
+
+  // Drag state (ref to avoid re-renders during drag)
+  const dragRef = useRef<DragState>({
+    mode: null,
+    startX: 0,
+    startY: 0,
+    currentX: 0,
+    currentY: 0,
+    startOffset: 0,
+    startVisibleCount: 120,
+    startPriceCenter: 0,
+    startPriceRange: 0,
+    startAutoFitY: true,
+    moved: false,
+  });
+
+  // Force redraw trigger for box-zoom overlay (ref-based drawing)
+  const [renderTick, setRenderTick] = useState(0);
+  // Mirrors dragRef.mode for conditional rendering
+  const [isDragging, setIsDragging] = useState(false);
+
   const [dimensions, setDimensions] = useState({ w: 1200, h: height });
 
   const {
@@ -52,7 +109,26 @@ export default function TradingChart({ height = 560 }: ChartProps) {
 
   const candles = candlesByTf[activeTimeframe] ?? [];
 
-  // Analysis — memoized
+  // === Layout helpers ===
+  const getLayout = useCallback(() => {
+    const volH = showVolume
+      ? Math.min(LAYOUT.volMax, dimensions.h * LAYOUT.volRatio)
+      : 0;
+    const chartH = dimensions.h - LAYOUT.padT - LAYOUT.padB - volH;
+    const chartW = dimensions.w - LAYOUT.padL - LAYOUT.padR;
+    return {
+      padL: LAYOUT.padL,
+      padR: LAYOUT.padR,
+      padT: LAYOUT.padT,
+      padB: LAYOUT.padB,
+      volH,
+      chartH,
+      chartW,
+      volTop: dimensions.h - LAYOUT.padB - volH,
+    };
+  }, [dimensions, showVolume]);
+
+  // === Analysis — memoized ===
   const analysis = useMemo(() => {
     if (candles.length < 30) return null;
     const smc = analyzeSMC(candles);
@@ -61,21 +137,63 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     return { smc, orderflow, plan };
   }, [candles, livePrice]);
 
-  // Resize observer
+  // === Compute auto-fit price bounds ===
+  const autoFitBounds = useMemo<{ min: number; max: number }>(() => {
+    if (candles.length < 2) return { min: 0, max: 1 };
+    const total = candles.length;
+    const visible = Math.min(view.visibleCount, total);
+    const startIdx = Math.max(0, total - visible - view.offset);
+    const endIdx = Math.min(total, startIdx + visible);
+    const visibleCandles = candles.slice(startIdx, endIdx);
+    let pMin = Infinity;
+    let pMax = -Infinity;
+    for (const c of visibleCandles) {
+      if (c.l < pMin) pMin = c.l;
+      if (c.h > pMax) pMax = c.h;
+    }
+    // Include AI signal + position levels so they're always visible in auto-fit
+    const extraLevels: number[] = [];
+    if (position.entry) extraLevels.push(position.entry);
+    if (position.stop) extraLevels.push(position.stop);
+    if (position.tp1) extraLevels.push(position.tp1);
+    if (position.tp2) extraLevels.push(position.tp2);
+    if (position.tp3) extraLevels.push(position.tp3);
+    if (aiSignal && aiSignal.side !== "NEUTRAL") {
+      extraLevels.push(aiSignal.entry, aiSignal.stop, aiSignal.tp1, aiSignal.tp2, aiSignal.tp3);
+    }
+    if (livePrice) extraLevels.push(livePrice);
+    for (const lv of extraLevels) {
+      if (isFinite(lv) && lv > 0) {
+        pMin = Math.min(pMin, lv);
+        pMax = Math.max(pMax, lv);
+      }
+    }
+    if (!isFinite(pMin) || !isFinite(pMax)) return { min: 0, max: 1 };
+    const pad = (pMax - pMin) * 0.08 || pMax * 0.01;
+    return { min: pMin - pad, max: pMax + pad };
+  }, [candles, view.offset, view.visibleCount, position, aiSignal, livePrice]);
+
+  // === Effective bounds — auto-fit or manual ===
+  const effectiveBounds = useMemo<{ min: number; max: number }>(() => {
+    if (view.autoFitY) return autoFitBounds;
+    const half = view.priceRange / 2;
+    return { min: view.priceCenter - half, max: view.priceCenter + half };
+  }, [view, autoFitBounds]);
+
+  // === Resize observer ===
   useEffect(() => {
-    const parent = containerRef.current?.parentElement;
-    if (!parent) return;
+    if (!containerRef.current) return;
     const ro = new ResizeObserver(() => {
       if (containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         setDimensions({ w: rect.width, h: rect.height });
       }
     });
-    ro.observe(containerRef.current!);
+    ro.observe(containerRef.current);
     return () => ro.disconnect();
   }, []);
 
-  // Draw loop
+  // === Main draw loop ===
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -95,15 +213,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     ctx.fillStyle = "#020803";
     ctx.fillRect(0, 0, w, h);
 
-    // Layout
-    const padL = 8;
-    const padR = 80; // price axis
-    const padT = 8;
-    const padB = 24; // time axis
-    const volH = showVolume ? Math.min(80, h * 0.18) : 0;
-    const chartH = h - padT - padB - volH;
-    const chartW = w - padL - padR;
-    const volTop = h - padB - volH;
+    const { padL, padR, padT, padB, volH, chartH, chartW, volTop } = getLayout();
 
     if (candles.length < 5) {
       ctx.fillStyle = "rgba(0, 255, 127, 0.5)";
@@ -112,71 +222,29 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       return;
     }
 
-    // Visible range
+    // === Visible range ===
     const total = candles.length;
     const visible = Math.min(view.visibleCount, total);
     const startIdx = Math.max(0, total - visible - view.offset);
     const endIdx = Math.min(total, startIdx + visible);
     const visibleCandles = candles.slice(startIdx, endIdx);
 
-    // Price range
-    let pMin = Infinity;
-    let pMax = -Infinity;
+    // === Price range (from effectiveBounds, not recomputed) ===
+    let pMin = effectiveBounds.min;
+    let pMax = effectiveBounds.max;
+    const pRange = pMax - pMin || 1;
+
+    // Volume max
     let vMax = 0;
     for (const c of visibleCandles) {
-      if (c.l < pMin) pMin = c.l;
-      if (c.h > pMax) pMax = c.h;
       if (c.v > vMax) vMax = c.v;
     }
-    // Include AI signal levels and position levels in range
-    const extraLevels: number[] = [];
-    if (position.entry) extraLevels.push(position.entry);
-    if (position.stop) extraLevels.push(position.stop);
-    if (position.tp1) extraLevels.push(position.tp1);
-    if (position.tp2) extraLevels.push(position.tp2);
-    if (position.tp3) extraLevels.push(position.tp3);
-    if (aiSignal) {
-      extraLevels.push(aiSignal.entry, aiSignal.stop, aiSignal.tp1, aiSignal.tp2, aiSignal.tp3);
-    }
-    for (const lv of extraLevels) {
-      if (isFinite(lv)) {
-        pMin = Math.min(pMin, lv);
-        pMax = Math.max(pMax, lv);
-      }
-    }
-    if (livePrice) {
-      pMin = Math.min(pMin, livePrice);
-      pMax = Math.max(pMax, livePrice);
-    }
-    // Include SMC structures
-    if (analysis && showSMC) {
-      for (const f of analysis.smc.fvgs) {
-        if (f.index < startIdx || f.index > endIdx) continue;
-        pMin = Math.min(pMin, f.bottom);
-        pMax = Math.max(pMax, f.top);
-      }
-      for (const o of analysis.smc.orderBlocks) {
-        if (o.index < startIdx || o.index > endIdx) continue;
-        pMin = Math.min(pMin, o.bottom);
-        pMax = Math.max(pMax, o.top);
-      }
-      for (const l of analysis.smc.liquidity) {
-        if (!l.price) continue;
-        pMin = Math.min(pMin, l.price);
-        pMax = Math.max(pMax, l.price);
-      }
-    }
-    const pad = (pMax - pMin) * 0.08;
-    pMin -= pad;
-    pMax += pad;
-    const pRange = pMax - pMin || 1;
 
     // === GRID ===
     ctx.strokeStyle = "rgba(0, 255, 127, 0.05)";
     ctx.lineWidth = 1;
     ctx.font = '9px "JetBrains Mono", monospace';
-    ctx.fillStyle = "rgba(0, 255, 127, 0.35)";
-    // Horizontal gridlines
+    ctx.fillStyle = "rgba(0, 255, 127, 0.4)";
     const gridCount = 8;
     for (let i = 0; i <= gridCount; i++) {
       const y = padT + (chartH * i) / gridCount;
@@ -187,7 +255,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ctx.stroke();
       ctx.fillText(p.toFixed(2), padL + chartW + 4, y + 3);
     }
-    // Vertical gridlines (time)
     const vGridCount = 8;
     for (let i = 0; i <= vGridCount; i++) {
       const x = padL + (chartW * i) / vGridCount;
@@ -199,7 +266,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
 
     // === CANDLE METRICS ===
     const candleSlot = chartW / visible;
-    const candleW = Math.max(1, Math.min(12, candleSlot * 0.7));
+    const candleW = Math.max(1, Math.min(14, candleSlot * 0.7));
 
     function xOf(idx: number) {
       return padL + (idx - startIdx + 0.5) * candleSlot;
@@ -208,7 +275,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       return padT + ((pMax - price) / pRange) * chartH;
     }
 
-    // === SMC OVERLAYS — draw behind candles ===
+    // === SMC OVERLAYS — behind candles ===
     if (analysis && showSMC) {
       // Order blocks
       if (showOB) {
@@ -228,7 +295,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
           ctx.setLineDash([4, 3]);
           ctx.strokeRect(xStart - candleW, y1, chartW - xStart + padL + candleW, y2 - y1);
           ctx.setLineDash([]);
-          // label
           ctx.fillStyle = isBull ? "rgba(0, 255, 127, 0.7)" : "rgba(255, 59, 59, 0.7)";
           ctx.font = '8px "JetBrains Mono", monospace';
           ctx.fillText(ob.label, xStart - candleW + 2, y1 + 9);
@@ -269,14 +335,12 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       if (showLiquidity) {
         for (const liq of analysis.smc.liquidity) {
           if (!liq.price) continue;
-          // Only draw liquidity that is within visible range
           const y = yOf(liq.price);
           if (y < padT || y > padT + chartH) continue;
           const isBSL = liq.kind === "LIQ_BSL" || liq.kind === "EQH" || liq.kind === "SWEEP_BSL";
           const isSSL = liq.kind === "LIQ_SSL" || liq.kind === "EQL" || liq.kind === "SWEEP_SSL";
           const xStart = Math.max(padL, xOf(liq.index));
           if (liq.kind === "SWEEP_BSL" || liq.kind === "SWEEP_SSL") {
-            // Sweep marker
             ctx.strokeStyle = isBSL ? "rgba(255, 0, 212, 0.7)" : "rgba(0, 255, 224, 0.7)";
             ctx.fillStyle = isBSL ? "rgba(255, 0, 212, 0.7)" : "rgba(0, 255, 224, 0.7)";
             ctx.setLineDash([]);
@@ -284,7 +348,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
             ctx.moveTo(xStart, y);
             ctx.lineTo(padL + chartW, y);
             ctx.stroke();
-            // triangle marker
             ctx.beginPath();
             ctx.moveTo(xStart, y - 6);
             ctx.lineTo(xStart + 6, y);
@@ -324,7 +387,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
         ctx.moveTo(x, padT + chartH);
         ctx.lineTo(x, padT + chartH - 12);
         ctx.stroke();
-        // arrow
         ctx.beginPath();
         if (isBull) {
           ctx.moveTo(x, padT + chartH);
@@ -345,7 +407,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       }
     }
 
-    // === VOLUME BARS (bottom area) ===
+    // === VOLUME BARS ===
     if (showVolume) {
       for (let i = 0; i < visibleCandles.length; i++) {
         const c = visibleCandles[i];
@@ -353,12 +415,9 @@ export default function TradingChart({ height = 560 }: ChartProps) {
         const x = xOf(idx);
         const vh = (c.v / vMax) * (volH - 4);
         const up = c.c >= c.o;
-        ctx.fillStyle = up
-          ? "rgba(0, 255, 127, 0.4)"
-          : "rgba(255, 59, 59, 0.4)";
+        ctx.fillStyle = up ? "rgba(0, 255, 127, 0.4)" : "rgba(255, 59, 59, 0.4)";
         ctx.fillRect(x - candleW / 2, volTop + volH - vh, candleW, vh);
       }
-      // Volume label
       ctx.fillStyle = "rgba(0, 255, 127, 0.4)";
       ctx.font = '8px "JetBrains Mono", monospace';
       ctx.fillText("VOL", padL + 2, volTop + 10);
@@ -372,23 +431,18 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       const up = c.c >= c.o;
       const color = up ? "#00ff7f" : "#ff3b3b";
       const wickColor = up ? "rgba(0, 255, 127, 0.85)" : "rgba(255, 59, 59, 0.85)";
-
-      // Wick
       ctx.strokeStyle = wickColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(x, yOf(c.h));
       ctx.lineTo(x, yOf(c.l));
       ctx.stroke();
-
-      // Body
       const yO = yOf(c.o);
       const yC = yOf(c.c);
       const bodyTop = Math.min(yO, yC);
       const bodyH = Math.max(1, Math.abs(yC - yO));
       ctx.fillStyle = color;
       ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
-      // glow on latest
       if (i === visibleCandles.length - 1) {
         ctx.shadowBlur = 8;
         ctx.shadowColor = color;
@@ -410,7 +464,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ctx.lineTo(padL + chartW, y);
       ctx.stroke();
       ctx.setLineDash([]);
-      // label tag
       ctx.fillStyle = c;
       ctx.fillRect(padL + chartW, y - 8, padR, 16);
       ctx.fillStyle = "#000";
@@ -418,7 +471,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ctx.fillText(livePrice.toFixed(2), padL + chartW + 4, y + 3);
     }
 
-    // === AI SIGNAL ZONES (entry / SL / TP) ===
+    // === AI SIGNAL ZONES ===
     if (aiSignal && aiSignal.side !== "NEUTRAL") {
       const zones: { price: number; color: string; label: string; fillAlpha: number }[] = [
         { price: aiSignal.entry, color: "#00ffe0", label: `AI ENTRY`, fillAlpha: 0.08 },
@@ -440,12 +493,10 @@ export default function TradingChart({ height = 560 }: ChartProps) {
         ctx.lineTo(padL + chartW, y);
         ctx.stroke();
         ctx.setLineDash([]);
-        // label
         ctx.fillStyle = z.color;
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
       }
-      // Zone fills between entry→stop and entry→TP1
       const entryY = yOf(aiSignal.entry);
       const stopY = yOf(aiSignal.stop);
       const tp1Y = yOf(aiSignal.tp1);
@@ -477,7 +528,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
       }
-      // liquidation line
       if (position.liquidation) {
         const y = yOf(position.liquidation);
         if (y > padT && y < padT + chartH) {
@@ -508,7 +558,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     }
 
     // === CROSSHAIR (hover) ===
-    if (hoverRef.current.visible) {
+    if (hoverRef.current.visible && !dragRef.current.mode) {
       const hx = hoverRef.current.x;
       const hy = hoverRef.current.y;
       if (hx > padL && hx < padL + chartW && hy > padT && hy < padT + chartH) {
@@ -522,14 +572,65 @@ export default function TradingChart({ height = 560 }: ChartProps) {
         ctx.lineTo(padL + chartW, hy);
         ctx.stroke();
         ctx.setLineDash([]);
-        // price label
+        // price label on Y axis
         const price = pMax - ((hy - padT) / chartH) * pRange;
         ctx.fillStyle = "rgba(0, 255, 127, 0.9)";
         ctx.fillRect(padL + chartW, hy - 8, padR, 16);
         ctx.fillStyle = "#000";
         ctx.font = 'bold 10px "JetBrains Mono", monospace';
         ctx.fillText(price.toFixed(2), padL + chartW + 4, hy + 3);
+        // time label on X axis (hovered candle)
+        const slot = chartW / visible;
+        const idx = Math.floor((hx - padL) / slot) + startIdx;
+        if (idx >= 0 && idx < candles.length) {
+          const hc = candles[idx];
+          const d = new Date(hc.t);
+          const pad2 = (n: number) => n.toString().padStart(2, "0");
+          const label = `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+          const labelW = ctx.measureText(label).width + 8;
+          ctx.fillStyle = "rgba(0, 255, 127, 0.9)";
+          ctx.fillRect(hx - labelW / 2, h - padB + 2, labelW, padB - 4);
+          ctx.fillStyle = "#000";
+          ctx.fillText(label, hx - labelW / 2 + 4, h - 6);
+        }
       }
+    }
+
+    // === BOX-ZOOM SELECTION OVERLAY ===
+    const drag = dragRef.current;
+    if (drag.mode === "box" && drag.moved) {
+      const x1 = Math.min(drag.startX, drag.currentX);
+      const x2 = Math.max(drag.startX, drag.currentX);
+      const y1 = Math.min(drag.startY, drag.currentY);
+      const y2 = Math.max(drag.startY, drag.currentY);
+      // Fill
+      ctx.fillStyle = "rgba(0, 255, 224, 0.10)";
+      ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      // Border
+      ctx.strokeStyle = "rgba(0, 255, 224, 0.8)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      ctx.setLineDash([]);
+      // Corner markers
+      ctx.fillStyle = "#00ffe0";
+      const ms = 3;
+      [[x1, y1], [x2, y1], [x1, y2], [x2, y2]].forEach(([px, py]) => {
+        ctx.fillRect(px - ms, py - ms, ms * 2, ms * 2);
+      });
+      // Dimension labels
+      ctx.font = '8px "JetBrains Mono", monospace';
+      ctx.fillStyle = "#00ffe0";
+      const w_units = Math.round((x2 - x1) / candleSlot);
+      const h_units = ((y2 - y1) / chartH * pRange).toFixed(2);
+      ctx.fillText(`${w_units} bars × ${h_units} pts`, x2 + 4, y1 + 8);
+    }
+
+    // === PAN INDICATOR ===
+    if (drag.mode === "pan" && drag.moved) {
+      ctx.fillStyle = "rgba(255, 176, 0, 0.8)";
+      ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.fillText("⊙ PAN", padL + 4, padT + 12);
     }
 
     // === TOP-LEFT OVERLAY INFO ===
@@ -541,13 +642,26 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       topOverlays.push(`TREND: ${analysis.smc.trendBias}`);
       topOverlays.push(`CVD: ${analysis.orderflow.cvd.toFixed(1)} Δ:${analysis.orderflow.delta.toFixed(1)} ABS:${analysis.orderflow.absorption}`);
     }
+    // Only render if not currently dragging (avoid overlap with PAN indicator)
+    const overlayStart = drag.mode === "pan" && drag.moved ? 24 : 0;
     ctx.fillStyle = "rgba(0, 255, 127, 0.85)";
     ctx.font = '9px "JetBrains Mono", monospace';
     topOverlays.forEach((line, i) => {
-      ctx.fillText(line, padL + 4, padT + 12 + i * 12);
+      ctx.fillText(line, padL + 4, padT + 12 + overlayStart + i * 12);
     });
 
-    // === LEGEND (bottom right) ===
+    // === Y-AXIS MODE INDICATOR (top right of price axis) ===
+    ctx.fillStyle = view.autoFitY ? "rgba(0, 255, 127, 0.6)" : "rgba(255, 176, 0, 0.8)";
+    ctx.font = 'bold 8px "JetBrains Mono", monospace';
+    ctx.fillText(view.autoFitY ? "Y:AUTO" : "Y:LOCK", padL + chartW + 4, padT + 10);
+
+    // === ZOOM LEVEL INDICATOR (bottom right) ===
+    const zoomPct = ((view.visibleCount / total) * 100).toFixed(1);
+    ctx.fillStyle = "rgba(0, 255, 127, 0.5)";
+    ctx.font = '8px "JetBrains Mono", monospace';
+    ctx.fillText(`ZOOM ${zoomPct}% (${visible}/${total})`, padL + chartW - 100, h - 8);
+
+    // === LEGEND (bottom right area) ===
     const legend = [
       ["BOS/CHoCH", "#00ff7f"],
       ["FVG", "#ff3b3b"],
@@ -559,26 +673,45 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ["POS LVL", "rgba(255,176,0,0.8)"],
     ];
     ctx.font = '8px "JetBrains Mono", monospace';
-    let lx = padL + chartW - 200;
-    const ly = padT + 4;
+    const lx0 = padL + chartW - 200;
+    const ly0 = padT + 18;
     legend.forEach(([lbl, col], i) => {
-      const x = lx + (i % 4) * 50;
-      const y = ly + Math.floor(i / 4) * 11;
+      const x = lx0 + (i % 4) * 50;
+      const y = ly0 + Math.floor(i / 4) * 11;
       ctx.fillStyle = col;
       ctx.fillRect(x, y, 8, 8);
       ctx.fillStyle = "rgba(0, 255, 127, 0.7)";
       ctx.fillText(lbl, x + 10, y + 7);
     });
-  }, [candles, dimensions, view, analysis, livePrice, prevPrice, position, aiSignal, activeTimeframe, symbol, showSMC, showOrderflow, showLiquidity, showFVG, showOB, showVolume]);
+  }, [
+    candles,
+    dimensions,
+    view,
+    analysis,
+    livePrice,
+    prevPrice,
+    position,
+    aiSignal,
+    activeTimeframe,
+    symbol,
+    showSMC,
+    showOrderflow,
+    showLiquidity,
+    showFVG,
+    showOB,
+    showVolume,
+    effectiveBounds,
+    renderTick,
+    getLayout,
+  ]);
 
   // === AUTO-EXECUTE AI SIGNAL ===
-  const { autoExecute, setLivePrice, setConnection } = useTradingStore();
+  const { autoExecute } = useTradingStore();
   useEffect(() => {
     if (!autoExecute || !aiSignal || !analysis?.plan) return;
     if (position.status === "IN_POSITION") return;
     if (aiSignal.side === "NEUTRAL") return;
     if (aiSignal.confidence < 60) return;
-    // Open position from AI signal
     const sig = aiSignal;
     openPosition(sig.side, sig.entry, sig.stop, sig.tp1, sig.tp2, sig.tp3, 10, 1);
     pushSignal({
@@ -597,82 +730,429 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     if (livePrice > 0) checkPosition(livePrice);
   }, [livePrice]);
 
-  // === HOVER HANDLERS ===
-  function onMove(e: React.MouseEvent) {
+  // === MOUSE HANDLERS ===
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    if (e.button === 0) {
+      // Left button: pan (both H and V)
+      const center = effectiveBounds.min + (effectiveBounds.max - effectiveBounds.min) / 2;
+      const range = effectiveBounds.max - effectiveBounds.min;
+      dragRef.current = {
+        mode: "pan",
+        startX: x, startY: y,
+        currentX: x, currentY: y,
+        startOffset: view.offset,
+        startVisibleCount: view.visibleCount,
+        startPriceCenter: center,
+        startPriceRange: range,
+        startAutoFitY: view.autoFitY,
+        moved: false,
+      };
+      setIsDragging(true);
+      canvas.style.cursor = "grabbing";
+    } else if (e.button === 2) {
+      // Right button: box zoom
+      e.preventDefault();
+      const center = effectiveBounds.min + (effectiveBounds.max - effectiveBounds.min) / 2;
+      const range = effectiveBounds.max - effectiveBounds.min;
+      dragRef.current = {
+        mode: "box",
+        startX: x, startY: y,
+        currentX: x, currentY: y,
+        startOffset: view.offset,
+        startVisibleCount: view.visibleCount,
+        startPriceCenter: center,
+        startPriceRange: range,
+        startAutoFitY: view.autoFitY,
+        moved: false,
+      };
+      setIsDragging(true);
+      canvas.style.cursor = "crosshair";
+    }
+  }, [view, effectiveBounds]);
+
+  const onMouseMove = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     hoverRef.current = { x, y, visible: true };
-    // find candle
-    const padL = 8;
-    const padR = 80;
-    const chartW = dimensions.w - padL - padR;
-    const total = candles.length;
-    const visible = Math.min(view.visibleCount, total);
-    const startIdx = Math.max(0, total - visible - view.offset);
-    const slot = chartW / visible;
-    const idx = Math.floor((x - padL) / slot) + startIdx;
-    if (idx >= 0 && idx < candles.length) setHoverCandle(candles[idx]);
-    // force redraw
+
+    const drag = dragRef.current;
+    if (drag.mode) {
+      drag.currentX = x;
+      drag.currentY = y;
+      const dx = x - drag.startX;
+      const dy = y - drag.startY;
+      if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
+
+      if (drag.mode === "pan") {
+        const { chartW, chartH } = getLayout();
+        // Horizontal pan
+        const slotSize = chartW / drag.startVisibleCount;
+        const candlesShifted = Math.round(dx / slotSize);
+        const newOffset = Math.max(
+          0,
+          Math.min(candles.length - drag.startVisibleCount, drag.startOffset + candlesShifted),
+        );
+        // Vertical pan — switch to manual mode
+        const pricePerPixel = drag.startPriceRange / chartH;
+        const newPriceCenter = drag.startPriceCenter - dy * pricePerPixel;
+        setView({
+          offset: newOffset,
+          visibleCount: drag.startVisibleCount,
+          autoFitY: false,
+          priceCenter: newPriceCenter,
+          priceRange: drag.startPriceRange,
+        });
+      } else if (drag.mode === "box") {
+        // Just trigger redraw for the box overlay
+        setRenderTick((t) => (t + 1) % 1000000);
+      }
+    } else {
+      // Hover mode — find candle + compute hover price
+      const { padL, chartW, chartH, padT } = getLayout();
+      const total = candles.length;
+      const visible = Math.min(view.visibleCount, total);
+      const startIdx = Math.max(0, total - visible - view.offset);
+      const slot = chartW / visible;
+      const idx = Math.floor((x - padL) / slot) + startIdx;
+      if (idx >= 0 && idx < candles.length) setHoverCandle(candles[idx]);
+      const pRange = effectiveBounds.max - effectiveBounds.min;
+      const price = effectiveBounds.max - ((y - padT) / chartH) * pRange;
+      setHoverPrice(price);
+      canvas.style.cursor = "crosshair";
+    }
+  }, [view, candles, effectiveBounds, getLayout]);
+
+  const onMouseUp = useCallback((e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const drag = dragRef.current;
+
+    if (drag.mode === "box" && drag.moved) {
+      const { padL, chartW, padT, chartH } = getLayout();
+      const x1 = Math.min(drag.startX, drag.currentX);
+      const x2 = Math.max(drag.startX, drag.currentX);
+      const y1 = Math.min(drag.startY, drag.currentY);
+      const y2 = Math.max(drag.startY, drag.currentY);
+
+      if (x2 - x1 > 8 && y2 - y1 > 8) {
+        // Vertical zoom
+        const pRange = effectiveBounds.max - effectiveBounds.min;
+        const newPriceMax = effectiveBounds.max - ((y1 - padT) / chartH) * pRange;
+        const newPriceMin = effectiveBounds.max - ((y2 - padT) / chartH) * pRange;
+        const newPriceCenter = (newPriceMax + newPriceMin) / 2;
+        const newPriceRange = Math.max(newPriceMax - newPriceMin, pRange * 0.02);
+
+        // Horizontal zoom
+        const total = candles.length;
+        const visible = Math.min(view.visibleCount, total);
+        const startIdx = Math.max(0, total - visible - view.offset);
+        const slot = chartW / visible;
+        const candlesInBox = Math.max(MIN_VISIBLE, Math.round((x2 - x1) / slot));
+        const candlesBeforeBox = Math.round((x1 - padL) / slot);
+        const newVisibleCount = Math.min(MAX_VISIBLE, Math.max(MIN_VISIBLE, candlesInBox));
+        const newEndIdx = startIdx + candlesBeforeBox + candlesInBox;
+        const newOffset = Math.max(0, Math.min(total - newVisibleCount, total - newEndIdx));
+
+        setView({
+          offset: newOffset,
+          visibleCount: newVisibleCount,
+          autoFitY: false,
+          priceCenter: newPriceCenter,
+          priceRange: newPriceRange,
+        });
+      }
+    }
+
+    dragRef.current = {
+      mode: null,
+      startX: 0, startY: 0,
+      currentX: 0, currentY: 0,
+      startOffset: 0, startVisibleCount: 120,
+      startPriceCenter: 0, startPriceRange: 0,
+      startAutoFitY: true,
+      moved: false,
+    };
+    setIsDragging(false);
     canvas.style.cursor = "crosshair";
-  }
-  function onLeave() {
+  }, [view, candles.length, effectiveBounds, getLayout]);
+
+  const onMouseLeave = useCallback(() => {
     hoverRef.current.visible = false;
     setHoverCandle(null);
+    setHoverPrice(null);
     const canvas = canvasRef.current;
-    if (canvas) canvas.style.cursor = "default";
-  }
+    if (canvas && !dragRef.current.mode) canvas.style.cursor = "default";
+  }, []);
 
-  // === WHEEL ZOOM/PAN ===
-  function onWheel(e: React.WheelEvent) {
-    if (e.ctrlKey || e.metaKey) {
-      setView((v) => ({
-        ...v,
-        visibleCount: Math.max(30, Math.min(400, v.visibleCount + (e.deltaY > 0 ? 10 : -10))),
-      }));
+  const onDoubleClick = useCallback(() => {
+    // Reset to auto-fit
+    setView({
+      offset: 0,
+      visibleCount: 120,
+      autoFitY: true,
+      priceCenter: 0,
+      priceRange: 0,
+    });
+  }, []);
+
+  const onContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+  }, []);
+
+  // === ENHANCED WHEEL HANDLER ===
+  // Plain wheel = pan horizontally
+  // Shift+wheel = pan vertically
+  // Ctrl/Cmd+wheel = zoom horizontally (toward mouse X)
+  // Alt+wheel = zoom vertically (toward mouse Y)
+  const onWheel = useCallback((e: React.WheelEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const { padL, chartW, padT, chartH } = getLayout();
+
+    if (e.shiftKey) {
+      // Shift+wheel: pan vertically (price)
+      setView((v) => {
+        const bounds = v.autoFitY
+          ? autoFitBounds
+          : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+        const pRange = bounds.max - bounds.min;
+        const panAmount = (e.deltaY > 0 ? 1 : -1) * pRange * 0.05;
+        return {
+          ...v,
+          autoFitY: false,
+          priceCenter: (v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter) + panAmount,
+          priceRange: v.autoFitY ? pRange : v.priceRange,
+        };
+      });
+    } else if (e.altKey) {
+      // Alt+wheel: zoom vertically (toward mouse Y)
+      setView((v) => {
+        const bounds = v.autoFitY
+          ? autoFitBounds
+          : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+        const pRange = bounds.max - bounds.min;
+        const zoomFactor = e.deltaY > 0 ? 1.18 : 0.85;
+        const newRange = Math.max(pRange * 0.01, pRange * zoomFactor);
+        const mousePrice = bounds.max - ((mouseY - padT) / chartH) * pRange;
+        const center = v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter;
+        const newCenter = mousePrice + (center - mousePrice) * (newRange / pRange);
+        return {
+          ...v,
+          autoFitY: false,
+          priceCenter: newCenter,
+          priceRange: newRange,
+        };
+      });
+    } else if (e.ctrlKey || e.metaKey) {
+      // Ctrl+wheel: zoom horizontally toward mouse X
+      setView((v) => {
+        const total = candles.length;
+        const visible = Math.min(v.visibleCount, total);
+        const startIdx = Math.max(0, total - visible - v.offset);
+        const slot = chartW / visible;
+        const mouseCandleIdx = Math.floor((mouseX - padL) / slot) + startIdx;
+        const zoomFactor = e.deltaY > 0 ? 1.18 : 0.85;
+        const newVisible = Math.max(MIN_VISIBLE, Math.min(MAX_VISIBLE, Math.round(v.visibleCount * zoomFactor)));
+        const newSlot = chartW / newVisible;
+        const newStartIdx = Math.max(0, Math.min(total - newVisible, mouseCandleIdx - Math.floor((mouseX - padL) / newSlot)));
+        const newOffset = Math.max(0, Math.min(total - newVisible, total - newStartIdx - newVisible));
+        return { ...v, visibleCount: newVisible, offset: newOffset };
+      });
     } else {
-      setView((v) => ({
-        ...v,
-        offset: Math.max(0, Math.min(candles.length - v.visibleCount, v.offset + (e.deltaY > 0 ? 4 : -4))),
-      }));
+      // Plain wheel: pan horizontally
+      setView((v) => {
+        const panSpeed = Math.max(1, Math.round(v.visibleCount * 0.02));
+        const newOffset = Math.max(
+          0,
+          Math.min(candles.length - v.visibleCount, v.offset + (e.deltaY > 0 ? -panSpeed : panSpeed)),
+        );
+        return { ...v, offset: newOffset };
+      });
     }
-  }
+  }, [candles.length, autoFitBounds, getLayout]);
 
   // === KEYBOARD ===
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      const panSpeed = Math.max(1, Math.round(view.visibleCount * 0.05));
       if (e.key === "ArrowLeft") {
-        setView((v) => ({ ...v, offset: Math.min(candles.length - v.visibleCount, v.offset + 5) }));
+        setView((v) => ({ ...v, offset: Math.min(candles.length - v.visibleCount, v.offset + panSpeed) }));
       } else if (e.key === "ArrowRight") {
-        setView((v) => ({ ...v, offset: Math.max(0, v.offset - 5) }));
-      } else if (e.key === "+" || e.key === "=") {
-        setView((v) => ({ ...v, visibleCount: Math.max(30, v.visibleCount - 10) }));
-      } else if (e.key === "-") {
-        setView((v) => ({ ...v, visibleCount: Math.min(400, v.visibleCount + 10) }));
+        setView((v) => ({ ...v, offset: Math.max(0, v.offset - panSpeed) }));
+      } else if (e.key === "ArrowUp") {
+        // Vertical pan up (prices increase)
+        setView((v) => {
+          const bounds = v.autoFitY ? autoFitBounds : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+          const pRange = bounds.max - bounds.min;
+          const panAmount = pRange * 0.05;
+          return {
+            ...v,
+            autoFitY: false,
+            priceCenter: (v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter) + panAmount,
+            priceRange: v.autoFitY ? pRange : v.priceRange,
+          };
+        });
+      } else if (e.key === "ArrowDown") {
+        // Vertical pan down
+        setView((v) => {
+          const bounds = v.autoFitY ? autoFitBounds : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+          const pRange = bounds.max - bounds.min;
+          const panAmount = pRange * 0.05;
+          return {
+            ...v,
+            autoFitY: false,
+            priceCenter: (v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter) - panAmount,
+            priceRange: v.autoFitY ? pRange : v.priceRange,
+          };
+        });
+      } else if ((e.key === "+" || e.key === "=") && !e.shiftKey) {
+        // Horizontal zoom in
+        setView((v) => ({ ...v, visibleCount: Math.max(MIN_VISIBLE, Math.round(v.visibleCount * 0.85)) }));
+      } else if (e.key === "-" && !e.shiftKey) {
+        // Horizontal zoom out
+        setView((v) => ({ ...v, visibleCount: Math.min(MAX_VISIBLE, Math.round(v.visibleCount * 1.18)) }));
+      } else if (e.key === "+" && e.shiftKey || e.key === "_" ) {
+        // Shift+= : vertical zoom in
+        setView((v) => {
+          const bounds = v.autoFitY ? autoFitBounds : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+          const pRange = bounds.max - bounds.min;
+          return {
+            ...v,
+            autoFitY: false,
+            priceCenter: v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter,
+            priceRange: Math.max(pRange * 0.01, pRange * 0.85),
+          };
+        });
+      } else if (e.key === "-" && e.shiftKey) {
+        // Shift+- : vertical zoom out
+        setView((v) => {
+          const bounds = v.autoFitY ? autoFitBounds : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+          const pRange = bounds.max - bounds.min;
+          return {
+            ...v,
+            autoFitY: false,
+            priceCenter: v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter,
+            priceRange: pRange * 1.18,
+          };
+        });
+      } else if (e.key === "0" || e.key === "r" || e.key === "R") {
+        // Reset
+        setView({
+          offset: 0,
+          visibleCount: 120,
+          autoFitY: true,
+          priceCenter: 0,
+          priceRange: 0,
+        });
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [candles.length, view.visibleCount, autoFitBounds]);
+
+  // === ACTION HANDLERS ===
+  const autoFit = useCallback(() => {
+    setView((v) => ({ ...v, autoFitY: true, priceCenter: 0, priceRange: 0 }));
+  }, []);
+
+  const resetAll = useCallback(() => {
+    setView({
+      offset: 0,
+      visibleCount: 120,
+      autoFitY: true,
+      priceCenter: 0,
+      priceRange: 0,
+    });
+  }, []);
+
+  const zoomH = useCallback((dir: "in" | "out") => {
+    setView((v) => ({
+      ...v,
+      visibleCount: dir === "in"
+        ? Math.max(MIN_VISIBLE, Math.round(v.visibleCount * 0.85))
+        : Math.min(MAX_VISIBLE, Math.round(v.visibleCount * 1.18)),
+    }));
+  }, []);
+
+  const zoomV = useCallback((dir: "in" | "out") => {
+    setView((v) => {
+      const bounds = v.autoFitY
+        ? autoFitBounds
+        : { min: v.priceCenter - v.priceRange / 2, max: v.priceCenter + v.priceRange / 2 };
+      const pRange = bounds.max - bounds.min;
+      const factor = dir === "in" ? 0.85 : 1.18;
+      return {
+        ...v,
+        autoFitY: false,
+        priceCenter: v.autoFitY ? (bounds.min + bounds.max) / 2 : v.priceCenter,
+        priceRange: Math.max(pRange * 0.01, pRange * factor),
+      };
+    });
+  }, [autoFitBounds]);
+
+  const toggleYLock = useCallback(() => {
+    setView((v) => {
+      if (v.autoFitY) {
+        // Switch to manual — snapshot current auto-fit
+        return {
+          ...v,
+          autoFitY: false,
+          priceCenter: (autoFitBounds.min + autoFitBounds.max) / 2,
+          priceRange: autoFitBounds.max - autoFitBounds.min,
+        };
+      } else {
+        return { ...v, autoFitY: true, priceCenter: 0, priceRange: 0 };
+      }
+    });
+  }, [autoFitBounds]);
+
+  const panLeft = useCallback(() => {
+    setView((v) => {
+      const panSpeed = Math.max(1, Math.round(v.visibleCount * 0.1));
+      return { ...v, offset: Math.min(candles.length - v.visibleCount, v.offset + panSpeed) };
+    });
   }, [candles.length]);
+
+  const panRight = useCallback(() => {
+    setView((v) => {
+      const panSpeed = Math.max(1, Math.round(v.visibleCount * 0.1));
+      return { ...v, offset: Math.max(0, v.offset - panSpeed) };
+    });
+  }, []);
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full"
+      className="relative w-full h-full select-none"
       style={{ minHeight: height }}
       onWheel={onWheel}
+      onContextMenu={onContextMenu}
     >
       <canvas
         ref={canvasRef}
-        onMouseMove={onMove}
-        onMouseLeave={onLeave}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseLeave}
+        onDoubleClick={onDoubleClick}
         className="block"
-        style={{ background: "#020803" }}
+        style={{ background: "#020803", cursor: "crosshair" }}
       />
-      {/* Hover tooltip */}
-      {hoverCandle && (
+
+      {/* Hover tooltip (OHLCV) */}
+      {hoverCandle && !isDragging && (
         <div
           className="absolute pointer-events-none bg-[rgba(2,8,3,0.92)] border border-[rgba(0,255,127,0.4)] px-2 py-1 text-[9px] matrix-text z-20"
           style={{
@@ -682,31 +1162,131 @@ export default function TradingChart({ height = 560 }: ChartProps) {
             minWidth: 160,
           }}
         >
-          <div className="text-[var(--matrix-green-dim)] mb-0.5">{new Date(hoverCandle.t).toISOString().slice(0, 16).replace("T", " ")}</div>
+          <div className="text-[var(--matrix-green-dim)] mb-0.5">
+            {new Date(hoverCandle.t).toISOString().slice(0, 16).replace("T", " ")}
+          </div>
           <div>O: <span className="matrix-text-bright">{hoverCandle.o.toFixed(2)}</span></div>
           <div>H: <span className="matrix-text-bright">{hoverCandle.h.toFixed(2)}</span></div>
           <div>L: <span className="matrix-text-bright">{hoverCandle.l.toFixed(2)}</span></div>
           <div>C: <span className="matrix-text-bright">{hoverCandle.c.toFixed(2)}</span></div>
           <div>V: <span className="matrix-text-amber">{hoverCandle.v.toFixed(2)}</span></div>
+          {hoverPrice && (
+            <div className="mt-1 pt-1 border-t border-[rgba(0,255,127,0.2)]">
+              Y: <span className="matrix-text-cyan">{hoverPrice.toFixed(2)}</span>
+            </div>
+          )}
         </div>
       )}
-      {/* Bottom toolbar */}
-      <div className="absolute bottom-1 left-2 flex items-center gap-3 text-[9px] matrix-text-dim z-10" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
-        <span>SCROLL=pan | CTRL+SCROLL=zoom | ←→=pan | +/-=zoom</span>
+
+      {/* Chart control toolbar — top right */}
+      <div
+        className="absolute top-1 right-[90px] flex items-center gap-1 z-10"
+        style={{ fontFamily: "var(--font-jetbrains), monospace" }}
+      >
+        {/* Pan left */}
+        <button
+          onClick={panLeft}
+          title="Pan left (older)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >◀</button>
+        {/* Pan right */}
+        <button
+          onClick={panRight}
+          title="Pan right (newer)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >▶</button>
+        <span className="mx-1 text-[var(--matrix-green-dim)]">|</span>
+        {/* Horizontal zoom out */}
+        <button
+          onClick={() => zoomH("out")}
+          title="Zoom out horizontal (-)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >─</button>
+        {/* Horizontal zoom in */}
+        <button
+          onClick={() => zoomH("in")}
+          title="Zoom in horizontal (+)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >+</button>
+        <span className="mx-1 text-[var(--matrix-green-dim)]">|</span>
+        {/* Vertical zoom out */}
+        <button
+          onClick={() => zoomV("out")}
+          title="Zoom out vertical (Shift+-)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >⊟</button>
+        {/* Vertical zoom in */}
+        <button
+          onClick={() => zoomV("in")}
+          title="Zoom in vertical (Shift+=)"
+          className="h-6 w-6 text-[10px] matrix-text-dim hover:matrix-text-bright border border-[rgba(0,255,127,0.2)] hover:border-[var(--matrix-green)] bg-[rgba(2,8,3,0.7)]"
+        >⊞</button>
+        {/* Y lock toggle */}
+        <button
+          onClick={toggleYLock}
+          title={view.autoFitY ? "Y axis: AUTO (click to lock)" : "Y axis: LOCKED (click to auto-fit)"}
+          className="px-1.5 h-6 text-[9px] font-bold tracking-wider border bg-[rgba(2,8,3,0.7)]"
+          style={{
+            color: view.autoFitY ? "var(--matrix-green)" : "var(--matrix-amber)",
+            borderColor: view.autoFitY ? "rgba(0,255,127,0.4)" : "rgba(255,176,0,0.5)",
+          }}
+        >
+          {view.autoFitY ? "Y:AUTO" : "Y:LOCK"}
+        </button>
+        {/* Reset */}
+        <button
+          onClick={resetAll}
+          title="Reset view (double-click or R)"
+          className="px-1.5 h-6 text-[9px] font-bold tracking-wider border border-[rgba(0,255,224,0.4)] text-[var(--matrix-cyan)] hover:bg-[rgba(0,255,224,0.1)] bg-[rgba(2,8,3,0.7)]"
+        >⟲</button>
       </div>
-      {/* Trade plan quick-action */}
+
+      {/* EXEC button (when trade plan available) */}
       {analysis?.plan && position.status === "FLAT" && (
         <button
           onClick={() => {
             const p = analysis.plan!;
             openPosition(p.side, p.entry, p.stop, p.tp1, p.tp2, p.tp3, 10, 1);
           }}
-          className="absolute top-1 right-[90px] px-3 py-1 text-[10px] font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)] z-10"
+          className="absolute top-9 right-[90px] px-3 py-1 text-[10px] font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)] z-10"
           style={{ fontFamily: "var(--font-jetbrains), monospace", boxShadow: "0 0 8px rgba(0,255,127,0.6)" }}
         >
           ▶ EXEC {analysis.plan.side} {analysis.plan.rr.toFixed(1)}R
         </button>
       )}
+
+      {/* Help text — bottom left */}
+      <div
+        className="absolute bottom-1 left-2 flex flex-wrap items-center gap-3 text-[8px] matrix-text-dim z-10"
+        style={{ fontFamily: "var(--font-jetbrains), monospace" }}
+      >
+        <span title="Left-click drag to pan (H+V)">DRAG=pan</span>
+        <span title="Right-click drag to box-zoom">RDRAG=box-zoom</span>
+        <span title="Plain wheel = horizontal pan">WHL=H-pan</span>
+        <span title="Ctrl+wheel = horizontal zoom">⌘WHL=H-zoom</span>
+        <span title="Shift+wheel = vertical pan">⇧WHL=V-pan</span>
+        <span title="Alt+wheel = vertical zoom">⌥WHL=V-zoom</span>
+        <span title="Arrow keys pan, +/- zoom, R reset">⌨ ←→↑↓ +/- R</span>
+        <span title="Double-click to reset">2×CLK=reset</span>
+      </div>
+
+      {/* Zoom level indicator — bottom right */}
+      <div
+        className="absolute bottom-1 right-[90px] flex items-center gap-2 text-[8px] z-10"
+        style={{ fontFamily: "var(--font-jetbrains), monospace" }}
+      >
+        <span className="matrix-text-dim">
+          H:{view.visibleCount}c
+        </span>
+        <span className="matrix-text-dim">|</span>
+        <span style={{ color: view.autoFitY ? "var(--matrix-green)" : "var(--matrix-amber)" }}>
+          V:{view.autoFitY ? "AUTO" : `${view.priceRange.toFixed(2)}`}
+        </span>
+        <span className="matrix-text-dim">|</span>
+        <span className="matrix-text-dim">
+          {((view.visibleCount / Math.max(candles.length, 1)) * 100).toFixed(0)}%
+        </span>
+      </div>
     </div>
   );
 }

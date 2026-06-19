@@ -1,0 +1,713 @@
+     1→"use client";
+     2→
+     3→import { useEffect, useMemo, useRef, useState } from "react";
+     4→import { useTradingStore, openPosition, closePosition, checkPosition } from "@/lib/store";
+     5→import { analyzeSMC, analyzeOrderflow, buildTradePlan } from "@/lib/smc";
+     6→import type { Candle, Structure } from "@/lib/types";
+     7→import { fmtPrice, fmtTime } from "@/lib/format";
+     8→
+     9→interface ChartProps {
+    10→  height?: number;
+    11→}
+    12→
+    13→interface ViewRange {
+    14→  start: number; // candle index
+    15→  end: number;   // candle index
+    16→  priceMin: number;
+    17→  priceMax: number;
+    18→}
+    19→
+    20→export default function TradingChart({ height = 560 }: ChartProps) {
+    21→  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    22→  const containerRef = useRef<HTMLDivElement | null>(null);
+    23→  const hoverRef = useRef<{ x: number; y: number; visible: boolean }>({
+    24→    x: 0,
+    25→    y: 0,
+    26→    visible: false,
+    27→  });
+    28→  const [hoverCandle, setHoverCandle] = useState<Candle | null>(null);
+    29→  const [view, setView] = useState<{ offset: number; visibleCount: number }>({
+    30→    offset: 0,
+    31→    visibleCount: 120,
+    32→  });
+    33→  const [dimensions, setDimensions] = useState({ w: 1200, h: height });
+    34→
+    35→  const {
+    36→    candlesByTf,
+    37→    activeTimeframe,
+    38→    livePrice,
+    39→    prevPrice,
+    40→    showSMC,
+    41→    showOrderflow,
+    42→    showLiquidity,
+    43→    showFVG,
+    44→    showOB,
+    45→    showVolume,
+    46→    position,
+    47→    mode,
+    48→    aiSignal,
+    49→    pushSignal,
+    50→    symbol,
+    51→  } = useTradingStore();
+    52→
+    53→  const candles = candlesByTf[activeTimeframe] ?? [];
+    54→
+    55→  // Analysis — memoized
+    56→  const analysis = useMemo(() => {
+    57→    if (candles.length < 30) return null;
+    58→    const smc = analyzeSMC(candles);
+    59→    const orderflow = analyzeOrderflow(candles, 80);
+    60→    const plan = buildTradePlan(candles, smc, orderflow, livePrice || candles.at(-1)!.c);
+    61→    return { smc, orderflow, plan };
+    62→  }, [candles, livePrice]);
+    63→
+    64→  // Resize observer
+    65→  useEffect(() => {
+    66→    const parent = containerRef.current?.parentElement;
+    67→    if (!parent) return;
+    68→    const ro = new ResizeObserver(() => {
+    69→      if (containerRef.current) {
+    70→        const rect = containerRef.current.getBoundingClientRect();
+    71→        setDimensions({ w: rect.width, h: rect.height });
+    72→      }
+    73→    });
+    74→    ro.observe(containerRef.current!);
+    75→    return () => ro.disconnect();
+    76→  }, []);
+    77→
+    78→  // Draw loop
+    79→  useEffect(() => {
+    80→    const canvas = canvasRef.current;
+    81→    if (!canvas) return;
+    82→    const ctx = canvas.getContext("2d");
+    83→    if (!ctx) return;
+    84→
+    85→    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    86→    const w = dimensions.w;
+    87→    const h = dimensions.h;
+    88→    canvas.width = w * dpr;
+    89→    canvas.height = h * dpr;
+    90→    canvas.style.width = w + "px";
+    91→    canvas.style.height = h + "px";
+    92→    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    93→
+    94→    // === BACKGROUND ===
+    95→    ctx.fillStyle = "#020803";
+    96→    ctx.fillRect(0, 0, w, h);
+    97→
+    98→    // Layout
+    99→    const padL = 8;
+   100→    const padR = 80; // price axis
+   101→    const padT = 8;
+   102→    const padB = 24; // time axis
+   103→    const volH = showVolume ? Math.min(80, h * 0.18) : 0;
+   104→    const chartH = h - padT - padB - volH;
+   105→    const chartW = w - padL - padR;
+   106→    const volTop = h - padB - volH;
+   107→
+   108→    if (candles.length < 5) {
+   109→      ctx.fillStyle = "rgba(0, 255, 127, 0.5)";
+   110→      ctx.font = '14px "JetBrains Mono", monospace';
+   111→      ctx.fillText("// ACQUIRING MARKET DATA...", padL, h / 2);
+   112→      return;
+   113→    }
+   114→
+   115→    // Visible range
+   116→    const total = candles.length;
+   117→    const visible = Math.min(view.visibleCount, total);
+   118→    const startIdx = Math.max(0, total - visible - view.offset);
+   119→    const endIdx = Math.min(total, startIdx + visible);
+   120→    const visibleCandles = candles.slice(startIdx, endIdx);
+   121→
+   122→    // Price range
+   123→    let pMin = Infinity;
+   124→    let pMax = -Infinity;
+   125→    let vMax = 0;
+   126→    for (const c of visibleCandles) {
+   127→      if (c.l < pMin) pMin = c.l;
+   128→      if (c.h > pMax) pMax = c.h;
+   129→      if (c.v > vMax) vMax = c.v;
+   130→    }
+   131→    // Include AI signal levels and position levels in range
+   132→    const extraLevels: number[] = [];
+   133→    if (position.entry) extraLevels.push(position.entry);
+   134→    if (position.stop) extraLevels.push(position.stop);
+   135→    if (position.tp1) extraLevels.push(position.tp1);
+   136→    if (position.tp2) extraLevels.push(position.tp2);
+   137→    if (position.tp3) extraLevels.push(position.tp3);
+   138→    if (aiSignal) {
+   139→      extraLevels.push(aiSignal.entry, aiSignal.stop, aiSignal.tp1, aiSignal.tp2, aiSignal.tp3);
+   140→    }
+   141→    for (const lv of extraLevels) {
+   142→      if (isFinite(lv)) {
+   143→        pMin = Math.min(pMin, lv);
+   144→        pMax = Math.max(pMax, lv);
+   145→      }
+   146→    }
+   147→    if (livePrice) {
+   148→      pMin = Math.min(pMin, livePrice);
+   149→      pMax = Math.max(pMax, livePrice);
+   150→    }
+   151→    // Include SMC structures
+   152→    if (analysis && showSMC) {
+   153→      for (const f of analysis.smc.fvgs) {
+   154→        if (f.index < startIdx || f.index > endIdx) continue;
+   155→        pMin = Math.min(pMin, f.bottom);
+   156→        pMax = Math.max(pMax, f.top);
+   157→      }
+   158→      for (const o of analysis.smc.orderBlocks) {
+   159→        if (o.index < startIdx || o.index > endIdx) continue;
+   160→        pMin = Math.min(pMin, o.bottom);
+   161→        pMax = Math.max(pMax, o.top);
+   162→      }
+   163→      for (const l of analysis.smc.liquidity) {
+   164→        if (!l.price) continue;
+   165→        pMin = Math.min(pMin, l.price);
+   166→        pMax = Math.max(pMax, l.price);
+   167→      }
+   168→    }
+   169→    const pad = (pMax - pMin) * 0.08;
+   170→    pMin -= pad;
+   171→    pMax += pad;
+   172→    const pRange = pMax - pMin || 1;
+   173→
+   174→    // === GRID ===
+   175→    ctx.strokeStyle = "rgba(0, 255, 127, 0.05)";
+   176→    ctx.lineWidth = 1;
+   177→    ctx.font = '9px "JetBrains Mono", monospace';
+   178→    ctx.fillStyle = "rgba(0, 255, 127, 0.35)";
+   179→    // Horizontal gridlines
+   180→    const gridCount = 8;
+   181→    for (let i = 0; i <= gridCount; i++) {
+   182→      const y = padT + (chartH * i) / gridCount;
+   183→      const p = pMax - (pRange * i) / gridCount;
+   184→      ctx.beginPath();
+   185→      ctx.moveTo(padL, y);
+   186→      ctx.lineTo(padL + chartW, y);
+   187→      ctx.stroke();
+   188→      ctx.fillText(p.toFixed(2), padL + chartW + 4, y + 3);
+   189→    }
+   190→    // Vertical gridlines (time)
+   191→    const vGridCount = 8;
+   192→    for (let i = 0; i <= vGridCount; i++) {
+   193→      const x = padL + (chartW * i) / vGridCount;
+   194→      ctx.beginPath();
+   195→      ctx.moveTo(x, padT);
+   196→      ctx.lineTo(x, padT + chartH);
+   197→      ctx.stroke();
+   198→    }
+   199→
+   200→    // === CANDLE METRICS ===
+   201→    const candleSlot = chartW / visible;
+   202→    const candleW = Math.max(1, Math.min(12, candleSlot * 0.7));
+   203→
+   204→    function xOf(idx: number) {
+   205→      return padL + (idx - startIdx + 0.5) * candleSlot;
+   206→    }
+   207→    function yOf(price: number) {
+   208→      return padT + ((pMax - price) / pRange) * chartH;
+   209→    }
+   210→
+   211→    // === SMC OVERLAYS — draw behind candles ===
+   212→    if (analysis && showSMC) {
+   213→      // Order blocks
+   214→      if (showOB) {
+   215→        for (const ob of analysis.smc.orderBlocks) {
+   216→          if (ob.index < startIdx || ob.index > endIdx) continue;
+   217→          const xStart = xOf(ob.index);
+   218→          const y1 = yOf(ob.top);
+   219→          const y2 = yOf(ob.bottom);
+   220→          const isBull = ob.kind === "OB_BULL";
+   221→          ctx.fillStyle = isBull
+   222→            ? "rgba(0, 255, 127, 0.10)"
+   223→            : "rgba(255, 59, 59, 0.10)";
+   224→          ctx.fillRect(xStart - candleW, y1, chartW - xStart + padL + candleW, y2 - y1);
+   225→          ctx.strokeStyle = isBull
+   226→            ? "rgba(0, 255, 127, 0.35)"
+   227→            : "rgba(255, 59, 59, 0.35)";
+   228→          ctx.setLineDash([4, 3]);
+   229→          ctx.strokeRect(xStart - candleW, y1, chartW - xStart + padL + candleW, y2 - y1);
+   230→          ctx.setLineDash([]);
+   231→          // label
+   232→          ctx.fillStyle = isBull ? "rgba(0, 255, 127, 0.7)" : "rgba(255, 59, 59, 0.7)";
+   233→          ctx.font = '8px "JetBrains Mono", monospace';
+   234→          ctx.fillText(ob.label, xStart - candleW + 2, y1 + 9);
+   235→        }
+   236→      }
+   237→
+   238→      // FVGs
+   239→      if (showFVG) {
+   240→        for (const fvg of analysis.smc.fvgs) {
+   241→          if (fvg.index < startIdx || fvg.index > endIdx) continue;
+   242→          const xStart = xOf(fvg.index - 2);
+   243→          const y1 = yOf(fvg.top);
+   244→          const y2 = yOf(fvg.bottom);
+   245→          const isBull = fvg.kind === "FVG_BULL";
+   246→          if (fvg.mitigated) {
+   247→            ctx.fillStyle = isBull
+   248→              ? "rgba(0, 255, 127, 0.04)"
+   249→              : "rgba(255, 59, 59, 0.04)";
+   250→          } else {
+   251→            ctx.fillStyle = isBull
+   252→              ? "rgba(0, 255, 127, 0.16)"
+   253→              : "rgba(255, 59, 59, 0.16)";
+   254→          }
+   255→          ctx.fillRect(xStart, y1, chartW - xStart + padL, y2 - y1);
+   256→          ctx.strokeStyle = isBull
+   257→            ? "rgba(0, 255, 127, 0.4)"
+   258→            : "rgba(255, 59, 59, 0.4)";
+   259→          ctx.setLineDash([2, 2]);
+   260→          ctx.strokeRect(xStart, y1, chartW - xStart + padL, y2 - y1);
+   261→          ctx.setLineDash([]);
+   262→          ctx.fillStyle = isBull ? "rgba(0, 255, 127, 0.7)" : "rgba(255, 59, 59, 0.7)";
+   263→          ctx.font = '8px "JetBrains Mono", monospace';
+   264→          ctx.fillText(fvg.label, xStart + 2, y1 + 9);
+   265→        }
+   266→      }
+   267→
+   268→      // Liquidity lines
+   269→      if (showLiquidity) {
+   270→        for (const liq of analysis.smc.liquidity) {
+   271→          if (!liq.price) continue;
+   272→          // Only draw liquidity that is within visible range
+   273→          const y = yOf(liq.price);
+   274→          if (y < padT || y > padT + chartH) continue;
+   275→          const isBSL = liq.kind === "LIQ_BSL" || liq.kind === "EQH" || liq.kind === "SWEEP_BSL";
+   276→          const isSSL = liq.kind === "LIQ_SSL" || liq.kind === "EQL" || liq.kind === "SWEEP_SSL";
+   277→          const xStart = Math.max(padL, xOf(liq.index));
+   278→          if (liq.kind === "SWEEP_BSL" || liq.kind === "SWEEP_SSL") {
+   279→            // Sweep marker
+   280→            ctx.strokeStyle = isBSL ? "rgba(255, 0, 212, 0.7)" : "rgba(0, 255, 224, 0.7)";
+   281→            ctx.fillStyle = isBSL ? "rgba(255, 0, 212, 0.7)" : "rgba(0, 255, 224, 0.7)";
+   282→            ctx.setLineDash([]);
+   283→            ctx.beginPath();
+   284→            ctx.moveTo(xStart, y);
+   285→            ctx.lineTo(padL + chartW, y);
+   286→            ctx.stroke();
+   287→            // triangle marker
+   288→            ctx.beginPath();
+   289→            ctx.moveTo(xStart, y - 6);
+   290→            ctx.lineTo(xStart + 6, y);
+   291→            ctx.lineTo(xStart, y + 6);
+   292→            ctx.fill();
+   293→            ctx.font = '8px "JetBrains Mono", monospace';
+   294→            ctx.fillText(liq.label, xStart + 8, y - 3);
+   295→          } else {
+   296→            ctx.strokeStyle = isBSL
+   297→              ? "rgba(255, 176, 0, 0.45)"
+   298→              : "rgba(0, 255, 224, 0.45)";
+   299→            ctx.setLineDash([6, 3]);
+   300→            ctx.lineWidth = 1;
+   301→            ctx.beginPath();
+   302→            ctx.moveTo(xStart, y);
+   303→            ctx.lineTo(padL + chartW, y);
+   304→            ctx.stroke();
+   305→            ctx.setLineDash([]);
+   306→            ctx.fillStyle = isBSL ? "rgba(255, 176, 0, 0.8)" : "rgba(0, 255, 224, 0.8)";
+   307→            ctx.font = '8px "JetBrains Mono", monospace';
+   308→            ctx.fillText(liq.label, xStart + 3, y - 3);
+   309→          }
+   310→        }
+   311→      }
+   312→
+   313→      // Structure markers (BOS / CHoCH)
+   314→      for (const st of analysis.smc.structures) {
+   315→        if (st.index < startIdx || st.index > endIdx) continue;
+   316→        const x = xOf(st.index);
+   317→        const isBull = st.kind === "BOS_BULL" || st.kind === "CHoCH_BULL";
+   318→        const isCHoCH = st.kind.includes("CHoCH");
+   319→        const color = isBull ? "rgba(0, 255, 127, 0.9)" : "rgba(255, 59, 59, 0.9)";
+   320→        ctx.strokeStyle = color;
+   321→        ctx.fillStyle = color;
+   322→        ctx.lineWidth = 1.5;
+   323→        ctx.beginPath();
+   324→        ctx.moveTo(x, padT + chartH);
+   325→        ctx.lineTo(x, padT + chartH - 12);
+   326→        ctx.stroke();
+   327→        // arrow
+   328→        ctx.beginPath();
+   329→        if (isBull) {
+   330→          ctx.moveTo(x, padT + chartH);
+   331→          ctx.lineTo(x - 4, padT + chartH - 6);
+   332→          ctx.lineTo(x + 4, padT + chartH - 6);
+   333→        } else {
+   334→          ctx.moveTo(x, padT + chartH - 12);
+   335→          ctx.lineTo(x - 4, padT + chartH - 6);
+   336→          ctx.lineTo(x + 4, padT + chartH - 6);
+   337→        }
+   338→        ctx.fill();
+   339→        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+   340→        ctx.fillText(st.label, x + 3, padT + chartH - 14);
+   341→        if (isCHoCH) {
+   342→          ctx.fillStyle = "rgba(255, 0, 212, 0.8)";
+   343→          ctx.fillText("★", x - 6, padT + chartH - 14);
+   344→        }
+   345→      }
+   346→    }
+   347→
+   348→    // === VOLUME BARS (bottom area) ===
+   349→    if (showVolume) {
+   350→      for (let i = 0; i < visibleCandles.length; i++) {
+   351→        const c = visibleCandles[i];
+   352→        const idx = startIdx + i;
+   353→        const x = xOf(idx);
+   354→        const vh = (c.v / vMax) * (volH - 4);
+   355→        const up = c.c >= c.o;
+   356→        ctx.fillStyle = up
+   357→          ? "rgba(0, 255, 127, 0.4)"
+   358→          : "rgba(255, 59, 59, 0.4)";
+   359→        ctx.fillRect(x - candleW / 2, volTop + volH - vh, candleW, vh);
+   360→      }
+   361→      // Volume label
+   362→      ctx.fillStyle = "rgba(0, 255, 127, 0.4)";
+   363→      ctx.font = '8px "JetBrains Mono", monospace';
+   364→      ctx.fillText("VOL", padL + 2, volTop + 10);
+   365→    }
+   366→
+   367→    // === CANDLES ===
+   368→    for (let i = 0; i < visibleCandles.length; i++) {
+   369→      const c = visibleCandles[i];
+   370→      const idx = startIdx + i;
+   371→      const x = xOf(idx);
+   372→      const up = c.c >= c.o;
+   373→      const color = up ? "#00ff7f" : "#ff3b3b";
+   374→      const wickColor = up ? "rgba(0, 255, 127, 0.85)" : "rgba(255, 59, 59, 0.85)";
+   375→
+   376→      // Wick
+   377→      ctx.strokeStyle = wickColor;
+   378→      ctx.lineWidth = 1;
+   379→      ctx.beginPath();
+   380→      ctx.moveTo(x, yOf(c.h));
+   381→      ctx.lineTo(x, yOf(c.l));
+   382→      ctx.stroke();
+   383→
+   384→      // Body
+   385→      const yO = yOf(c.o);
+   386→      const yC = yOf(c.c);
+   387→      const bodyTop = Math.min(yO, yC);
+   388→      const bodyH = Math.max(1, Math.abs(yC - yO));
+   389→      ctx.fillStyle = color;
+   390→      ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+   391→      // glow on latest
+   392→      if (i === visibleCandles.length - 1) {
+   393→        ctx.shadowBlur = 8;
+   394→        ctx.shadowColor = color;
+   395→        ctx.fillRect(x - candleW / 2, bodyTop, candleW, bodyH);
+   396→        ctx.shadowBlur = 0;
+   397→      }
+   398→    }
+   399→
+   400→    // === LIVE PRICE LINE ===
+   401→    if (livePrice) {
+   402→      const y = yOf(livePrice);
+   403→      const up = livePrice >= prevPrice;
+   404→      const c = up ? "#00ff7f" : "#ff3b3b";
+   405→      ctx.strokeStyle = c;
+   406→      ctx.lineWidth = 1;
+   407→      ctx.setLineDash([3, 3]);
+   408→      ctx.beginPath();
+   409→      ctx.moveTo(padL, y);
+   410→      ctx.lineTo(padL + chartW, y);
+   411→      ctx.stroke();
+   412→      ctx.setLineDash([]);
+   413→      // label tag
+   414→      ctx.fillStyle = c;
+   415→      ctx.fillRect(padL + chartW, y - 8, padR, 16);
+   416→      ctx.fillStyle = "#000";
+   417→      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+   418→      ctx.fillText(livePrice.toFixed(2), padL + chartW + 4, y + 3);
+   419→    }
+   420→
+   421→    // === AI SIGNAL ZONES (entry / SL / TP) ===
+   422→    if (aiSignal && aiSignal.side !== "NEUTRAL") {
+   423→      const zones: { price: number; color: string; label: string; fillAlpha: number }[] = [
+   424→        { price: aiSignal.entry, color: "#00ffe0", label: `AI ENTRY`, fillAlpha: 0.08 },
+   425→        { price: aiSignal.stop, color: "#ff3b3b", label: `AI STOP`, fillAlpha: 0.06 },
+   426→        { price: aiSignal.tp1, color: "#00ff7f", label: `AI TP1`, fillAlpha: 0.06 },
+   427→        { price: aiSignal.tp2, color: "#5fffaa", label: `AI TP2`, fillAlpha: 0.04 },
+   428→        { price: aiSignal.tp3, color: "#ffb000", label: `AI TP3`, fillAlpha: 0.04 },
+   429→      ];
+   430→      for (const z of zones) {
+   431→        const y = yOf(z.price);
+   432→        if (y < padT || y > padT + chartH) continue;
+   433→        ctx.fillStyle = z.color + Math.floor(z.fillAlpha * 255).toString(16).padStart(2, "0");
+   434→        ctx.fillRect(padL, y - 1, chartW, 2);
+   435→        ctx.strokeStyle = z.color;
+   436→        ctx.lineWidth = 1;
+   437→        ctx.setLineDash([5, 3]);
+   438→        ctx.beginPath();
+   439→        ctx.moveTo(padL, y);
+   440→        ctx.lineTo(padL + chartW, y);
+   441→        ctx.stroke();
+   442→        ctx.setLineDash([]);
+   443→        // label
+   444→        ctx.fillStyle = z.color;
+   445→        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+   446→        ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
+   447→      }
+   448→      // Zone fills between entry→stop and entry→TP1
+   449→      const entryY = yOf(aiSignal.entry);
+   450→      const stopY = yOf(aiSignal.stop);
+   451→      const tp1Y = yOf(aiSignal.tp1);
+   452→      ctx.fillStyle = "rgba(255, 59, 59, 0.06)";
+   453→      ctx.fillRect(padL, Math.min(entryY, stopY), chartW, Math.abs(stopY - entryY));
+   454→      ctx.fillStyle = "rgba(0, 255, 127, 0.06)";
+   455→      ctx.fillRect(padL, Math.min(entryY, tp1Y), chartW, Math.abs(tp1Y - entryY));
+   456→    }
+   457→
+   458→    // === OPEN POSITION ZONES ===
+   459→    if (position.status === "IN_POSITION" && position.entry && position.stop && position.tp1) {
+   460→      const zones: { price: number; color: string; label: string }[] = [
+   461→        { price: position.entry, color: "#00ffe0", label: `POS ENTRY` },
+   462→        { price: position.stop, color: "#ff3b3b", label: `POS STOP` },
+   463→        { price: position.tp1, color: "#00ff7f", label: `POS TP1` },
+   464→      ];
+   465→      if (position.tp2) zones.push({ price: position.tp2, color: "#5fffaa", label: `POS TP2` });
+   466→      if (position.tp3) zones.push({ price: position.tp3, color: "#ffb000", label: `POS TP3` });
+   467→      for (const z of zones) {
+   468→        const y = yOf(z.price);
+   469→        if (y < padT || y > padT + chartH) continue;
+   470→        ctx.strokeStyle = z.color;
+   471→        ctx.lineWidth = 1.5;
+   472→        ctx.beginPath();
+   473→        ctx.moveTo(padL, y);
+   474→        ctx.lineTo(padL + chartW, y);
+   475→        ctx.stroke();
+   476→        ctx.fillStyle = z.color;
+   477→        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+   478→        ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
+   479→      }
+   480→      // liquidation line
+   481→      if (position.liquidation) {
+   482→        const y = yOf(position.liquidation);
+   483→        if (y > padT && y < padT + chartH) {
+   484→          ctx.strokeStyle = "rgba(255, 0, 212, 0.6)";
+   485→          ctx.setLineDash([2, 2]);
+   486→          ctx.beginPath();
+   487→          ctx.moveTo(padL, y);
+   488→          ctx.lineTo(padL + chartW, y);
+   489→          ctx.stroke();
+   490→          ctx.setLineDash([]);
+   491→          ctx.fillStyle = "rgba(255, 0, 212, 0.9)";
+   492→          ctx.font = '8px "JetBrains Mono", monospace';
+   493→          ctx.fillText(`LIQ ${position.liquidation.toFixed(2)}`, padL + 6, y - 3);
+   494→        }
+   495→      }
+   496→    }
+   497→
+   498→    // === TIME AXIS LABELS ===
+   499→    ctx.fillStyle = "rgba(0, 255, 127, 0.5)";
+   500→    ctx.font = '8px "JetBrains Mono", monospace';
+   501→    const labelEvery = Math.ceil(visible / 8);
+   502→    for (let i = 0; i < visibleCandles.length; i += labelEvery) {
+   503→      const x = xOf(startIdx + i);
+   504→      const c = visibleCandles[i];
+   505→      const d = new Date(c.t);
+   506→      const pad = (n: number) => n.toString().padStart(2, "0");
+   507→      ctx.fillText(`${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`, x - 25, h - 8);
+   508→    }
+   509→
+   510→    // === CROSSHAIR (hover) ===
+   511→    if (hoverRef.current.visible) {
+   512→      const hx = hoverRef.current.x;
+   513→      const hy = hoverRef.current.y;
+   514→      if (hx > padL && hx < padL + chartW && hy > padT && hy < padT + chartH) {
+   515→        ctx.strokeStyle = "rgba(0, 255, 127, 0.4)";
+   516→        ctx.lineWidth = 1;
+   517→        ctx.setLineDash([3, 3]);
+   518→        ctx.beginPath();
+   519→        ctx.moveTo(hx, padT);
+   520→        ctx.lineTo(hx, padT + chartH + (showVolume ? volH : 0));
+   521→        ctx.moveTo(padL, hy);
+   522→        ctx.lineTo(padL + chartW, hy);
+   523→        ctx.stroke();
+   524→        ctx.setLineDash([]);
+   525→        // price label
+   526→        const price = pMax - ((hy - padT) / chartH) * pRange;
+   527→        ctx.fillStyle = "rgba(0, 255, 127, 0.9)";
+   528→        ctx.fillRect(padL + chartW, hy - 8, padR, 16);
+   529→        ctx.fillStyle = "#000";
+   530→        ctx.font = 'bold 10px "JetBrains Mono", monospace';
+   531→        ctx.fillText(price.toFixed(2), padL + chartW + 4, hy + 3);
+   532→      }
+   533→    }
+   534→
+   535→    // === TOP-LEFT OVERLAY INFO ===
+   536→    const topOverlays: string[] = [
+   537→      `${activeTimeframe} • ${symbol}`,
+   538→      `O:${visibleCandles.at(-1)?.o.toFixed(2)} H:${visibleCandles.at(-1)?.h.toFixed(2)} L:${visibleCandles.at(-1)?.l.toFixed(2)} C:${visibleCandles.at(-1)?.c.toFixed(2)}`,
+   539→    ];
+   540→    if (analysis) {
+   541→      topOverlays.push(`TREND: ${analysis.smc.trendBias}`);
+   542→      topOverlays.push(`CVD: ${analysis.orderflow.cvd.toFixed(1)} Δ:${analysis.orderflow.delta.toFixed(1)} ABS:${analysis.orderflow.absorption}`);
+   543→    }
+   544→    ctx.fillStyle = "rgba(0, 255, 127, 0.85)";
+   545→    ctx.font = '9px "JetBrains Mono", monospace';
+   546→    topOverlays.forEach((line, i) => {
+   547→      ctx.fillText(line, padL + 4, padT + 12 + i * 12);
+   548→    });
+   549→
+   550→    // === LEGEND (bottom right) ===
+   551→    const legend = [
+   552→      ["BOS/CHoCH", "#00ff7f"],
+   553→      ["FVG", "#ff3b3b"],
+   554→      ["OB", "rgba(0,255,127,0.4)"],
+   555→      ["LIQ BSL", "#ffb000"],
+   556→      ["LIQ SSL", "#00ffe0"],
+   557→      ["SWEEP", "#ff00d4"],
+   558→      ["AI LVL", "#00ffe0"],
+   559→      ["POS LVL", "rgba(255,176,0,0.8)"],
+   560→    ];
+   561→    ctx.font = '8px "JetBrains Mono", monospace';
+   562→    let lx = padL + chartW - 200;
+   563→    const ly = padT + 4;
+   564→    legend.forEach(([lbl, col], i) => {
+   565→      const x = lx + (i % 4) * 50;
+   566→      const y = ly + Math.floor(i / 4) * 11;
+   567→      ctx.fillStyle = col;
+   568→      ctx.fillRect(x, y, 8, 8);
+   569→      ctx.fillStyle = "rgba(0, 255, 127, 0.7)";
+   570→      ctx.fillText(lbl, x + 10, y + 7);
+   571→    });
+   572→  }, [candles, dimensions, view, analysis, livePrice, prevPrice, position, aiSignal, activeTimeframe, symbol, showSMC, showOrderflow, showLiquidity, showFVG, showOB, showVolume]);
+   573→
+   574→  // === AUTO-EXECUTE AI SIGNAL ===
+   575→  const { autoExecute, setLivePrice, setConnection } = useTradingStore();
+   576→  useEffect(() => {
+   577→    if (!autoExecute || !aiSignal || !analysis?.plan) return;
+   578→    if (position.status === "IN_POSITION") return;
+   579→    if (aiSignal.side === "NEUTRAL") return;
+   580→    if (aiSignal.confidence < 60) return;
+   581→    // Open position from AI signal
+   582→    const sig = aiSignal;
+   583→    openPosition(sig.side, sig.entry, sig.stop, sig.tp1, sig.tp2, sig.tp3, 10, 1);
+   584→    pushSignal({
+   585→      id: Math.random().toString(36).slice(2),
+   586→      ts: Date.now(),
+   587→      side: sig.side,
+   588→      type: "ENTRY",
+   589→      price: sig.entry,
+   590→      note: `[AUTO-EXEC] AI ${sig.side} conf=${sig.confidence.toFixed(0)}% | ${mode}`,
+   591→      confidence: sig.confidence,
+   592→    });
+   593→  }, [autoExecute, aiSignal, position.status]);
+   594→
+   595→  // === CHECK POSITION ON PRICE UPDATE ===
+   596→  useEffect(() => {
+   597→    if (livePrice > 0) checkPosition(livePrice);
+   598→  }, [livePrice]);
+   599→
+   600→  // === HOVER HANDLERS ===
+   601→  function onMove(e: React.MouseEvent) {
+   602→    const canvas = canvasRef.current;
+   603→    if (!canvas) return;
+   604→    const rect = canvas.getBoundingClientRect();
+   605→    const x = e.clientX - rect.left;
+   606→    const y = e.clientY - rect.top;
+   607→    hoverRef.current = { x, y, visible: true };
+   608→    // find candle
+   609→    const padL = 8;
+   610→    const padR = 80;
+   611→    const chartW = dimensions.w - padL - padR;
+   612→    const total = candles.length;
+   613→    const visible = Math.min(view.visibleCount, total);
+   614→    const startIdx = Math.max(0, total - visible - view.offset);
+   615→    const slot = chartW / visible;
+   616→    const idx = Math.floor((x - padL) / slot) + startIdx;
+   617→    if (idx >= 0 && idx < candles.length) setHoverCandle(candles[idx]);
+   618→    // force redraw
+   619→    canvas.style.cursor = "crosshair";
+   620→  }
+   621→  function onLeave() {
+   622→    hoverRef.current.visible = false;
+   623→    setHoverCandle(null);
+   624→    const canvas = canvasRef.current;
+   625→    if (canvas) canvas.style.cursor = "default";
+   626→  }
+   627→
+   628→  // === WHEEL ZOOM/PAN ===
+   629→  function onWheel(e: React.WheelEvent) {
+   630→    if (e.ctrlKey || e.metaKey) {
+   631→      setView((v) => ({
+   632→        ...v,
+   633→        visibleCount: Math.max(30, Math.min(400, v.visibleCount + (e.deltaY > 0 ? 10 : -10))),
+   634→      }));
+   635→    } else {
+   636→      setView((v) => ({
+   637→        ...v,
+   638→        offset: Math.max(0, Math.min(candles.length - v.visibleCount, v.offset + (e.deltaY > 0 ? 4 : -4))),
+   639→      }));
+   640→    }
+   641→  }
+   642→
+   643→  // === KEYBOARD ===
+   644→  useEffect(() => {
+   645→    function onKey(e: KeyboardEvent) {
+   646→      if (e.key === "ArrowLeft") {
+   647→        setView((v) => ({ ...v, offset: Math.min(candles.length - v.visibleCount, v.offset + 5) }));
+   648→      } else if (e.key === "ArrowRight") {
+   649→        setView((v) => ({ ...v, offset: Math.max(0, v.offset - 5) }));
+   650→      } else if (e.key === "+" || e.key === "=") {
+   651→        setView((v) => ({ ...v, visibleCount: Math.max(30, v.visibleCount - 10) }));
+   652→      } else if (e.key === "-") {
+   653→        setView((v) => ({ ...v, visibleCount: Math.min(400, v.visibleCount + 10) }));
+   654→      }
+   655→    }
+   656→    window.addEventListener("keydown", onKey);
+   657→    return () => window.removeEventListener("keydown", onKey);
+   658→  }, [candles.length]);
+   659→
+   660→  return (
+   661→    <div
+   662→      ref={containerRef}
+   663→      className="relative w-full h-full"
+   664→      style={{ minHeight: height }}
+   665→      onWheel={onWheel}
+   666→    >
+   667→      <canvas
+   668→        ref={canvasRef}
+   669→        onMouseMove={onMove}
+   670→        onMouseLeave={onLeave}
+   671→        className="block"
+   672→        style={{ background: "#020803" }}
+   673→      />
+   674→      {/* Hover tooltip */}
+   675→      {hoverCandle && (
+   676→        <div
+   677→          className="absolute pointer-events-none bg-[rgba(2,8,3,0.92)] border border-[rgba(0,255,127,0.4)] px-2 py-1 text-[9px] matrix-text z-20"
+   678→          style={{
+   679→            top: 8,
+   680→            right: 90,
+   681→            fontFamily: "var(--font-jetbrains), monospace",
+   682→            minWidth: 160,
+   683→          }}
+   684→        >
+   685→          <div className="text-[var(--matrix-green-dim)] mb-0.5">{new Date(hoverCandle.t).toISOString().slice(0, 16).replace("T", " ")}</div>
+   686→          <div>O: <span className="matrix-text-bright">{hoverCandle.o.toFixed(2)}</span></div>
+   687→          <div>H: <span className="matrix-text-bright">{hoverCandle.h.toFixed(2)}</span></div>
+   688→          <div>L: <span className="matrix-text-bright">{hoverCandle.l.toFixed(2)}</span></div>
+   689→          <div>C: <span className="matrix-text-bright">{hoverCandle.c.toFixed(2)}</span></div>
+   690→          <div>V: <span className="matrix-text-amber">{hoverCandle.v.toFixed(2)}</span></div>
+   691→        </div>
+   692→      )}
+   693→      {/* Bottom toolbar */}
+   694→      <div className="absolute bottom-1 left-2 flex items-center gap-3 text-[9px] matrix-text-dim z-10" style={{ fontFamily: "var(--font-jetbrains), monospace" }}>
+   695→        <span>SCROLL=pan | CTRL+SCROLL=zoom | ←→=pan | +/-=zoom</span>
+   696→      </div>
+   697→      {/* Trade plan quick-action */}
+   698→      {analysis?.plan && position.status === "FLAT" && (
+   699→        <button
+   700→          onClick={() => {
+   701→            const p = analysis.plan!;
+   702→            openPosition(p.side, p.entry, p.stop, p.tp1, p.tp2, p.tp3, 10, 1);
+   703→          }}
+   704→          className="absolute top-1 right-[90px] px-3 py-1 text-[10px] font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)] z-10"
+   705→          style={{ fontFamily: "var(--font-jetbrains), monospace", boxShadow: "0 0 8px rgba(0,255,127,0.6)" }}
+   706→        >
+   707→          ▶ EXEC {analysis.plan.side} {analysis.plan.rr.toFixed(1)}R
+   708→        </button>
+   709→      )}
+   710→    </div>
+   711→  );
+   712→}
+   713→
