@@ -25,7 +25,7 @@ export default function OrderflowPanel() {
     if (!parent) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = parent.clientWidth;
-    const h = 80;
+    const h = 44;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + "px";
@@ -144,83 +144,75 @@ export default function OrderflowPanel() {
 
   // Volume profile canvas
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>≡ ORDERFLOW ANALYSIS</span>
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>≡ ORDERFLOW</span>
         <span className="text-[var(--matrix-green-dim)]">{activeTimeframe}</span>
       </div>
 
-      {/* CVD chart */}
-      <div className="border-b border-[rgba(0,255,127,0.12)]">
-        <div className="flex items-center justify-between px-2 pt-1.5">
-          <span className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">CUMULATIVE VOL DELTA</span>
+      {/* CVD chart — compact */}
+      <div className="border-b border-[rgba(0,255,127,0.12)] flex-none">
+        <div className="flex items-center justify-between px-2 pt-1">
+          <span className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">CVD</span>
           <span className="text-[9px] matrix-text-cyan font-bold tabular-nums">
             {orderflow.cvd >= 0 ? "+" : ""}{fmtCompact(orderflow.cvd)}
           </span>
         </div>
-        <canvas ref={canvasRef} className="block w-full" />
+        <canvas ref={canvasRef} className="block w-full" style={{ height: "44px" }} />
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)]">
-        <div className="bg-[#020803] px-2 py-1.5">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">DELTA</div>
-          <div className="text-xs font-bold tabular-nums" style={{ color: deltaColor, textShadow: `0 0 4px ${deltaColor}` }}>
+      {/* Stats grid — compact 2x2 */}
+      <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)] flex-none">
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">Δ NOW</div>
+          <div className="text-[10px] font-bold tabular-nums leading-tight" style={{ color: deltaColor }}>
             {deltaSign}{fmtCompact(absDelta)}
           </div>
         </div>
-        <div className="bg-[#020803] px-2 py-1.5">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">ΔEMA</div>
-          <div className="text-xs font-bold tabular-nums matrix-text-amber">
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">Δ EMA</div>
+          <div className="text-[10px] font-bold tabular-nums matrix-text-amber leading-tight">
             {orderflow.deltaEMA >= 0 ? "+" : ""}{fmtCompact(orderflow.deltaEMA)}
           </div>
         </div>
-        <div className="bg-[#020803] px-2 py-1.5">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">BUY PWR</div>
-          <div className="text-xs font-bold tabular-nums matrix-text">
-            {(orderflow.buyPressure * 100).toFixed(1)}%
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">BUY</div>
+          <div className="text-[10px] font-bold tabular-nums matrix-text leading-tight">
+            {(orderflow.buyPressure * 100).toFixed(0)}%
           </div>
-          <div className="h-1 mt-1 bg-[rgba(0,255,127,0.1)]">
-            <div
-              className="h-full"
-              style={{ width: `${orderflow.buyPressure * 100}%`, background: "var(--matrix-green)" }}
-            />
+          <div className="h-0.5 mt-0.5 bg-[rgba(0,255,127,0.1)]">
+            <div className="h-full" style={{ width: `${orderflow.buyPressure * 100}%`, background: "var(--matrix-green)" }} />
           </div>
         </div>
-        <div className="bg-[#020803] px-2 py-1.5">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">SELL PWR</div>
-          <div className="text-xs font-bold tabular-nums matrix-text-red">
-            {(orderflow.sellPressure * 100).toFixed(1)}%
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">SELL</div>
+          <div className="text-[10px] font-bold tabular-nums matrix-text-red leading-tight">
+            {(orderflow.sellPressure * 100).toFixed(0)}%
           </div>
-          <div className="h-1 mt-1 bg-[rgba(255,59,59,0.1)]">
-            <div
-              className="h-full"
-              style={{ width: `${orderflow.sellPressure * 100}%`, background: "var(--matrix-red)" }}
-            />
+          <div className="h-0.5 mt-0.5 bg-[rgba(255,59,59,0.1)]">
+            <div className="h-full" style={{ width: `${orderflow.sellPressure * 100}%`, background: "var(--matrix-red)" }} />
           </div>
         </div>
       </div>
 
-      {/* Absorption */}
-      <div className="border-t border-[rgba(0,255,127,0.12)] px-2 py-1.5 flex items-center justify-between">
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">ABSORPTION</span>
+      {/* Absorption — compact single line */}
+      <div className="border-t border-[rgba(0,255,127,0.12)] px-1.5 py-0.5 flex items-center justify-between flex-none">
+        <span className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">ABS</span>
         <span
-          className={`text-[10px] font-bold tracking-wider ${
-            orderflow.absorption === "NONE" ? "matrix-text-dim" : "matrix-blink"
-          }`}
+          className={`text-[9px] font-bold tracking-wider ${orderflow.absorption !== "NONE" ? "matrix-blink" : ""}`}
           style={{
             color: orderflow.absorption === "BUY" ? "var(--matrix-green)" : orderflow.absorption === "SELL" ? "var(--matrix-red)" : "var(--matrix-green-dim)",
           }}
         >
-          {orderflow.absorption === "NONE" ? "—" : `${orderflow.absorption} ABSORBED`}
+          {orderflow.absorption === "NONE" ? "—" : orderflow.absorption}
         </span>
       </div>
 
-      {/* Volume profile */}
-      <div className="flex-1 min-h-0 border-t border-[rgba(0,255,127,0.12)] p-1.5">
-        <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest mb-1 flex justify-between">
-          <span>VOLUME PROFILE</span>
-          <span>POC: <span className="matrix-text-amber">{orderflow.poc.toFixed(2)}</span></span>
+      {/* Volume profile — fills remaining space */}
+      <div className="flex-1 min-h-0 border-t border-[rgba(0,255,127,0.12)] p-1 overflow-hidden">
+        <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5 flex justify-between">
+          <span>VOL PROFILE</span>
+          <span>POC: <span className="matrix-text-amber">{orderflow.poc.toFixed(1)}</span></span>
         </div>
         <VolumeProfile
           nodes={orderflow.volumeNode}
@@ -231,15 +223,15 @@ export default function OrderflowPanel() {
         />
       </div>
 
-      {/* Value area footer */}
-      <div className="border-t border-[rgba(0,255,127,0.12)] px-2 py-1 grid grid-cols-2 gap-2 text-[9px]">
+      {/* Value area footer — compact */}
+      <div className="border-t border-[rgba(0,255,127,0.12)] px-1.5 py-0.5 grid grid-cols-2 gap-2 text-[8px] flex-none">
         <div className="flex justify-between">
-          <span className="text-[var(--matrix-green-dim)]">VAH:</span>
-          <span className="matrix-text">{orderflow.vah.toFixed(2)}</span>
+          <span className="text-[var(--matrix-green-dim)]">VAH</span>
+          <span className="matrix-text tabular-nums">{orderflow.vah.toFixed(1)}</span>
         </div>
         <div className="flex justify-between">
-          <span className="text-[var(--matrix-green-dim)]">VAL:</span>
-          <span className="matrix-text">{orderflow.val.toFixed(2)}</span>
+          <span className="text-[var(--matrix-green-dim)]">VAL</span>
+          <span className="matrix-text tabular-nums">{orderflow.val.toFixed(1)}</span>
         </div>
       </div>
     </div>
@@ -270,7 +262,8 @@ function VolumeProfile({
     if (!parent) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const w = parent.clientWidth;
-    const h = Math.max(80, parent.clientHeight - 16);
+    // Use parent's available height (after the label), minimum 40px so it always renders
+    const h = Math.max(40, parent.clientHeight - 12);
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     canvas.style.width = w + "px";

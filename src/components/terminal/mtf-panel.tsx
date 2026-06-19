@@ -55,15 +55,15 @@ export default function MTFPanel() {
   const aggBias = mtf.length > 0 ? mtf.reduce((s, m) => s + m.bias, 0) / mtf.length : 0;
 
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>◎ MTF CONFIRMATION [1W→1m]</span>
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>◎ MTF CONFIRM</span>
         <span className="text-[var(--matrix-green-dim)]">{mtf.length}/6</span>
       </div>
 
       {/* Aggregate */}
-      <div className="px-2 py-1.5 border-b border-[rgba(0,255,127,0.12)]">
-        <div className="flex items-center justify-between text-[9px]">
+      <div className="px-1.5 py-1 border-b border-[rgba(0,255,127,0.12)] flex-none">
+        <div className="flex items-center justify-between text-[8px]">
           <span className="text-[var(--matrix-green-dim)]">AGGREGATE BIAS</span>
           <span
             className="font-bold"

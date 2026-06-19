@@ -19,42 +19,42 @@ export default function PositionPanel() {
   const distTP1 = position.tp1 && livePrice ? ((position.tp1 - livePrice) / livePrice) * 100 : null;
 
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>▣ POSITION MANAGER</span>
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>▣ POSITION</span>
         <span className={mode === "REAL" ? "matrix-text-red matrix-blink" : "matrix-text"}>
-          {mode} MODE
+          {mode}
         </span>
       </div>
 
-      {/* Equity summary */}
-      <div className="border-b border-[rgba(0,255,127,0.12)] p-2">
+      {/* Equity summary — compact */}
+      <div className="border-b border-[rgba(0,255,127,0.12)] p-1.5 flex-none">
         <div className="grid grid-cols-4 gap-px bg-[rgba(0,255,127,0.08)]">
-          <div className="bg-[#020803] px-2 py-1.5">
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">EQUITY</div>
-            <div className="text-[11px] font-bold tabular-nums matrix-text-bright">
+          <div className="bg-[#020803] px-1 py-1">
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">EQUITY</div>
+            <div className="text-[10px] font-bold tabular-nums matrix-text-bright leading-tight truncate">
               {fmtUsd(pnl.equity)}
             </div>
           </div>
-          <div className="bg-[#020803] px-2 py-1.5">
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">BALANCE</div>
-            <div className="text-[11px] font-bold tabular-nums matrix-text">
+          <div className="bg-[#020803] px-1 py-1">
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">BAL</div>
+            <div className="text-[10px] font-bold tabular-nums matrix-text leading-tight truncate">
               {fmtUsd(pnl.balance)}
             </div>
           </div>
-          <div className="bg-[#020803] px-2 py-1.5">
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">uPnL</div>
+          <div className="bg-[#020803] px-1 py-1">
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">uPnL</div>
             <div
-              className="text-[11px] font-bold tabular-nums"
+              className="text-[10px] font-bold tabular-nums leading-tight truncate"
               style={{ color: uPnL >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" }}
             >
               {uPnL >= 0 ? "+" : "-"}{fmtUsd(Math.abs(uPnL))}
             </div>
           </div>
-          <div className="bg-[#020803] px-2 py-1.5">
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">rPnL</div>
+          <div className="bg-[#020803] px-1 py-1">
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">rPnL</div>
             <div
-              className="text-[11px] font-bold tabular-nums"
+              className="text-[10px] font-bold tabular-nums leading-tight truncate"
               style={{ color: pnl.realized >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" }}
             >
               {pnl.realized >= 0 ? "+" : "-"}{fmtUsd(Math.abs(pnl.realized))}
@@ -62,12 +62,12 @@ export default function PositionPanel() {
           </div>
         </div>
 
-        {/* Win rate bar */}
-        <div className="mt-2">
-          <div className="flex justify-between text-[8px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">
+        {/* Win rate bar — compact */}
+        <div className="mt-1">
+          <div className="flex justify-between text-[7px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">
             <span>WIN RATE</span>
             <span className="matrix-text-amber">
-              {pnl.trades > 0 ? `${pnl.winRate.toFixed(1)}% (${pnl.wins}W/${pnl.losses}L)` : "—"}
+              {pnl.trades > 0 ? `${pnl.winRate.toFixed(0)}% (${pnl.wins}/${pnl.losses})` : "—"}
             </span>
           </div>
           <div className="h-1 bg-[rgba(0,255,127,0.06)] flex">
@@ -83,62 +83,62 @@ export default function PositionPanel() {
         </div>
       </div>
 
-      {/* Active position */}
-      <div className="flex-1 p-2">
+      {/* Active position — scrollable for overflow safety */}
+      <div className="flex-1 min-h-0 overflow-y-auto matrix-scroll p-1.5">
         {inPos ? (
           <>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">OPEN POSITION</span>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">OPEN</span>
               <span
-                className="text-[11px] font-bold tracking-widest matrix-blink"
+                className="text-[10px] font-bold tracking-widest matrix-blink"
                 style={{ color: side === "LONG" ? "var(--matrix-green)" : "var(--matrix-red)" }}
               >
                 {side === "LONG" ? "▲ LONG" : "▼ SHORT"} {position.leverage}x
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)] mb-2">
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">ENTRY</div>
-                <div className="text-[11px] font-bold matrix-text-cyan tabular-nums">{fmtPrice(entry)}</div>
+            <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)] mb-1.5">
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">ENTRY</div>
+                <div className="text-[10px] font-bold matrix-text-cyan tabular-nums leading-tight">{fmtPrice(entry)}</div>
               </div>
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">SIZE</div>
-                <div className="text-[11px] font-bold matrix-text tabular-nums">{position.size.toFixed(4)}</div>
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">SIZE</div>
+                <div className="text-[10px] font-bold matrix-text tabular-nums leading-tight">{position.size.toFixed(4)}</div>
               </div>
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">STOP</div>
-                <div className="text-[11px] font-bold matrix-text-red tabular-nums">{position.stop ? fmtPrice(position.stop) : "—"}</div>
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">STOP</div>
+                <div className="text-[10px] font-bold matrix-text-red tabular-nums leading-tight">{position.stop ? fmtPrice(position.stop) : "—"}</div>
                 {distStop !== null && (
-                  <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">{distStop.toFixed(2)}%</div>
+                  <div className="text-[7px] text-[var(--matrix-green-dim)] tabular-nums">{distStop.toFixed(2)}%</div>
                 )}
               </div>
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">TP1</div>
-                <div className="text-[11px] font-bold matrix-text tabular-nums">{position.tp1 ? fmtPrice(position.tp1) : "—"}</div>
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">TP1</div>
+                <div className="text-[10px] font-bold matrix-text tabular-nums leading-tight">{position.tp1 ? fmtPrice(position.tp1) : "—"}</div>
                 {distTP1 !== null && (
-                  <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">{distTP1.toFixed(2)}%</div>
+                  <div className="text-[7px] text-[var(--matrix-green-dim)] tabular-nums">{distTP1.toFixed(2)}%</div>
                 )}
               </div>
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">MARGIN</div>
-                <div className="text-[11px] font-bold matrix-text tabular-nums">{position.marginUsed ? fmtUsd(position.marginUsed) : "—"}</div>
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">MARGIN</div>
+                <div className="text-[10px] font-bold matrix-text tabular-nums leading-tight">{position.marginUsed ? fmtUsd(position.marginUsed) : "—"}</div>
               </div>
-              <div className="bg-[#020803] px-2 py-1.5">
-                <div className="text-[8px] text-[var(--matrix-green-dim)]">LIQ</div>
-                <div className="text-[11px] font-bold matrix-text-red tabular-nums">{position.liquidation ? fmtPrice(position.liquidation) : "—"}</div>
+              <div className="bg-[#020803] px-1 py-1">
+                <div className="text-[7px] text-[var(--matrix-green-dim)]">LIQ</div>
+                <div className="text-[10px] font-bold matrix-text-red tabular-nums leading-tight">{position.liquidation ? fmtPrice(position.liquidation) : "—"}</div>
               </div>
             </div>
 
             {/* Unrealized PnL bar */}
-            <div className="mb-2">
-              <div className="flex justify-between text-[8px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">
+            <div className="mb-1.5">
+              <div className="flex justify-between text-[7px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">
                 <span>uPnL</span>
                 <span style={{ color: uPnL >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" }}>
                   {uPnL >= 0 ? "+" : "-"}{fmtUsd(Math.abs(uPnL))} ({fmtPct(uPnLPct)})
                 </span>
               </div>
-              <div className="relative h-2 bg-[rgba(0,255,127,0.06)]">
+              <div className="relative h-1.5 bg-[rgba(0,255,127,0.06)]">
                 <div className="absolute top-0 left-1/2 h-full w-px bg-[rgba(255,255,255,0.4)]" />
                 <div
                   className="absolute top-0 h-full"
@@ -159,7 +159,7 @@ export default function PositionPanel() {
                 className="py-1.5 text-[10px] font-bold tracking-widest bg-[var(--matrix-red)] text-black hover:opacity-80"
                 style={{ boxShadow: "0 0 6px rgba(255,59,59,0.5)" }}
               >
-                ✕ CLOSE @ MKT
+                ✕ CLOSE
               </button>
               <button
                 onClick={() => {
@@ -167,29 +167,29 @@ export default function PositionPanel() {
                 }}
                 className="py-1.5 text-[10px] font-bold tracking-widest border border-[rgba(0,255,127,0.3)] text-[var(--matrix-green)] hover:bg-[rgba(0,255,127,0.1)]"
               >
-                ✓ TAKE PROFIT
+                ✓ TP
               </button>
             </div>
           </>
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="text-2xl matrix-text-dim mb-2">∅</div>
-            <div className="text-[10px] matrix-text-dim tracking-widest">FLAT — NO POSITION</div>
-            <div className="text-[8px] text-[var(--matrix-green-dim)] mt-1">
-              Execute AI signal or wait for auto-execute
+            <div className="text-xl matrix-text-dim mb-1">∅</div>
+            <div className="text-[9px] matrix-text-dim tracking-widest">FLAT</div>
+            <div className="text-[7px] text-[var(--matrix-green-dim)] mt-1 leading-tight">
+              Execute AI signal<br />or wait for auto-exec
             </div>
           </div>
         )}
       </div>
 
-      {/* Footer reset */}
-      <div className="border-t border-[rgba(0,255,127,0.12)] p-1.5 flex justify-between items-center">
-        <span className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">
-          SESSION: {pnl.trades} trades
+      {/* Footer reset — compact */}
+      <div className="border-t border-[rgba(0,255,127,0.12)] px-1.5 py-0.5 flex justify-between items-center flex-none">
+        <span className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">
+          SESSION: {pnl.trades}T
         </span>
         <button
           onClick={resetPnl}
-          className="text-[9px] text-[var(--matrix-red)] hover:underline"
+          className="text-[8px] text-[var(--matrix-red)] hover:underline"
         >
           [RESET]
         </button>

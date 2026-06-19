@@ -78,21 +78,21 @@ export default function TopBar() {
       style={{ fontFamily: "var(--font-jetbrains), monospace" }}
     >
       {/* Logo / brand */}
-      <div className="flex items-center gap-2 px-4 border-r border-[rgba(0,255,127,0.18)]">
+      <div className="flex items-center gap-2 px-2 md:px-4 border-r border-[rgba(0,255,127,0.18)] flex-none">
         <span
-          className="text-base font-bold tracking-tight matrix-text-bright matrix-pulse"
+          className="text-sm md:text-base font-bold tracking-tight matrix-text-bright matrix-pulse"
           style={{ letterSpacing: "-0.02em" }}
         >
           NEO//LIQUID
         </span>
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden md:inline">
+        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden lg:inline">
           v2.7.1
         </span>
       </div>
 
       {/* Symbol selector */}
-      <div className="flex items-center gap-2 px-3 border-r border-[rgba(0,255,127,0.18)]">
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">SYM:</span>
+      <div className="flex items-center gap-2 px-2 md:px-3 border-r border-[rgba(0,255,127,0.18)] flex-none">
+        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden sm:inline">SYM:</span>
         <select
           value={symbol}
           onChange={(e) => setSymbol(e.target.value)}
@@ -107,8 +107,8 @@ export default function TopBar() {
         </select>
       </div>
 
-      {/* Price ticker */}
-      <div className="hidden md:flex items-center gap-3 px-4 border-r border-[rgba(0,255,127,0.18)] min-w-[230px]">
+      {/* Price ticker — hide funding on small, show on md+ */}
+      <div className="hidden md:flex items-center gap-3 px-3 lg:px-4 border-r border-[rgba(0,255,127,0.18)] min-w-0 lg:min-w-[230px] flex-none">
         <div className="flex flex-col">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">PRICE</span>
           <span
@@ -127,7 +127,7 @@ export default function TopBar() {
             {fmtPct(change24h)}
           </span>
         </div>
-        <div className="flex flex-col">
+        <div className="hidden lg:flex flex-col">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">FUND</span>
           <span className="text-xs font-semibold tabular-nums matrix-text-amber">
             {(funding * 100).toFixed(4)}%
@@ -136,15 +136,15 @@ export default function TopBar() {
       </div>
 
       {/* Timeframe selector */}
-      <div className="flex items-center gap-1 px-3 border-r border-[rgba(0,255,127,0.18)]">
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest mr-1">TF:</span>
+      <div className="flex items-center gap-1 px-2 md:px-3 border-r border-[rgba(0,255,127,0.18)] flex-none">
+        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest mr-1 hidden sm:inline">TF:</span>
         {ALL_TF.map((tf: Timeframe) => {
           const active = tf === activeTimeframe;
           return (
             <button
               key={tf}
               onClick={() => setActiveTimeframe(tf)}
-              className={`px-2 py-1 text-[11px] font-bold tracking-wider transition-all ${
+              className={`px-1.5 md:px-2 py-1 text-[10px] md:text-[11px] font-bold tracking-wider transition-all ${
                 active
                   ? "bg-[var(--matrix-green)] text-[#021006]"
                   : "text-[var(--matrix-green-dim)] hover:text-[var(--matrix-green)] hover:bg-[rgba(0,255,127,0.1)]"
@@ -157,10 +157,10 @@ export default function TopBar() {
         })}
       </div>
 
-      <div className="flex-1" />
+      <div className="flex-1 min-w-0" />
 
-      {/* PnL mini-summary */}
-      <div className="hidden lg:flex items-center gap-4 px-4 border-l border-[rgba(0,255,127,0.18)]">
+      {/* PnL mini-summary — lg+ only */}
+      <div className="hidden lg:flex items-center gap-3 px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
         <div className="flex flex-col">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">EQUITY</span>
           <span className="text-xs font-bold tabular-nums matrix-text">
@@ -176,7 +176,7 @@ export default function TopBar() {
             {pnl.unrealized >= 0 ? "+" : "-"}${Math.abs(pnl.unrealized).toFixed(2)}
           </span>
         </div>
-        <div className="flex flex-col">
+        <div className="hidden xl:flex flex-col">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">WR</span>
           <span className="text-xs font-bold tabular-nums matrix-text-amber">
             {pnl.trades > 0 ? `${pnl.winRate.toFixed(1)}%` : "—"}
@@ -184,12 +184,12 @@ export default function TopBar() {
         </div>
       </div>
 
-      {/* Auto-execute */}
-      <div className="flex items-center gap-2 px-3 border-l border-[rgba(0,255,127,0.18)]">
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">AUTO</span>
+      {/* Auto-execute — compact */}
+      <div className="flex items-center gap-1.5 px-2 md:px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
+        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden sm:inline">AUTO</span>
         <button
           onClick={toggleAutoExecute}
-          className={`px-2 py-1 text-[10px] font-bold tracking-wider ${
+          className={`px-1.5 md:px-2 py-1 text-[9px] md:text-[10px] font-bold tracking-wider ${
             autoExecute
               ? "bg-[var(--matrix-amber)] text-black"
               : "text-[var(--matrix-green-dim)] border border-[rgba(0,255,127,0.3)]"
@@ -197,12 +197,12 @@ export default function TopBar() {
           style={autoExecute ? { boxShadow: "0 0 8px rgba(255,176,0,0.6)" } : {}}
           title="When ON, AI signals are auto-executed in current mode"
         >
-          {autoExecute ? "ARMED" : "OFF"}
+          {autoExecute ? "ARM" : "OFF"}
         </button>
       </div>
 
       {/* Mode toggle PAPER / REAL */}
-      <div className="flex items-center gap-0 border-l border-[rgba(0,255,127,0.18)]">
+      <div className="flex items-center gap-0 border-l border-[rgba(0,255,127,0.18)] flex-none">
         {(["PAPER", "REAL"] as TradingMode[]).map((m) => {
           const active = mode === m;
           const color = m === "REAL" ? "var(--matrix-red)" : "var(--matrix-green)";
@@ -210,7 +210,7 @@ export default function TopBar() {
             <button
               key={m}
               onClick={() => setMode(m)}
-              className={`px-3 py-1.5 text-[11px] font-bold tracking-widest transition-all ${
+              className={`px-2 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold tracking-widest transition-all ${
                 active ? "" : "text-[var(--matrix-green-dim)] hover:text-[var(--matrix-green)]"
               }`}
               style={
@@ -229,15 +229,15 @@ export default function TopBar() {
         })}
       </div>
 
-      {/* DEX status */}
-      <div className="flex flex-col items-end justify-center px-3 border-l border-[rgba(0,255,127,0.18)] min-w-[140px]">
-        <div className="flex items-center gap-2">
-          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">DEX</span>
-          <span className="text-[10px] font-bold matrix-text-cyan">{dexName}</span>
+      {/* DEX status — compact on small */}
+      <div className="flex flex-col items-end justify-center px-2 md:px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden sm:inline">DEX</span>
+          <span className="text-[9px] md:text-[10px] font-bold matrix-text-cyan">{dexName}</span>
         </div>
-        <div className="flex items-center gap-2 mt-0.5">
+        <div className="flex items-center gap-1.5 mt-0.5">
           <StatusDot state={connection} />
-          <span className="text-[9px] text-[var(--matrix-green-dim)] tabular-nums">{clock}</span>
+          <span className="text-[8px] md:text-[9px] text-[var(--matrix-green-dim)] tabular-nums">{clock}</span>
         </div>
       </div>
     </header>

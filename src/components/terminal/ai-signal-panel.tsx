@@ -61,12 +61,12 @@ export default function AISignalPanel() {
   const rr = risk > 0 ? reward1 / risk : 0;
 
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>⚡ AI SIGNAL ENGINE</span>
-        <span className="flex items-center gap-1.5">
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>⚡ AI SIGNAL</span>
+        <span className="flex items-center gap-1">
           <span
-            className="px-1.5 py-0.5 text-[8px] font-bold tracking-widest"
+            className="px-1 py-0.5 text-[7px] font-bold tracking-widest"
             style={{
               color: aiSignal.source === "AI" ? "var(--matrix-cyan)" : "var(--matrix-amber)",
               border: `1px solid ${aiSignal.source === "AI" ? "var(--matrix-cyan)" : "var(--matrix-amber)"}55`,
@@ -75,110 +75,100 @@ export default function AISignalPanel() {
           >
             {aiSignal.source === "AI" ? "● LLM" : "● SMC"}
           </span>
-          <span className={isExpired ? "text-[var(--matrix-red)]" : "matrix-text-cyan"}>
-            {isExpired ? "EXPIRED" : "ACTIVE"}
+          <span className={`text-[8px] ${isExpired ? "text-[var(--matrix-red)]" : "matrix-text-cyan"}`}>
+            {isExpired ? "EXP" : "ACT"}
           </span>
         </span>
       </div>
 
-      {/* Top: side + confidence + validity */}
-      <div className="border-b border-[rgba(0,255,127,0.12)] p-2">
-        <div className="flex items-center gap-3">
+      {/* Top: side + confidence + validity — compact */}
+      <div className="border-b border-[rgba(0,255,127,0.12)] p-1.5 flex-none">
+        <div className="flex items-center gap-2">
           <ConfidenceRing value={s.confidence} />
-          <div className="flex-1">
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">SIGNAL SIDE</div>
+          <div className="flex-1 min-w-0">
             <div
-              className="text-lg font-bold tracking-widest"
-              style={{ color: sideColor, textShadow: `0 0 6px ${sideColor}` }}
+              className="text-sm font-bold tracking-widest leading-tight truncate"
+              style={{ color: sideColor, textShadow: `0 0 4px ${sideColor}` }}
             >
               {isNeutral ? "● NEUTRAL" : s.side === "LONG" ? "▲ LONG" : "▼ SHORT"}
             </div>
-            <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">
-              BIAS: <span style={{ color: sideColor }}>{s.bias}</span>
-              {" • "}RR: <span className="matrix-text-amber">{s.rr.toFixed(2)}</span>
-              {" • "}EXP: <span className={isExpired ? "matrix-text-red" : "matrix-text"}>{fmtTime(s.ts + s.validityMs)}</span>
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest truncate">
+              B:<span style={{ color: sideColor }}>{s.bias}</span>
+              {" "}R:<span className="matrix-text-amber">{s.rr.toFixed(2)}</span>
+              {" "}E:<span className={isExpired ? "matrix-text-red" : "matrix-text"}>{fmtTime(s.ts + s.validityMs)}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Trade plan grid */}
-      <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)] border-b border-[rgba(0,255,127,0.12)]">
-        <div className="bg-[#020803] p-2">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">ENTRY</div>
-          <div className="text-sm font-bold tabular-nums matrix-text-cyan">{fmtPrice(s.entry)}</div>
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">
-            {livePrice > 0 ? `${(((s.entry - livePrice) / livePrice) * 100).toFixed(3)}% from mkt` : ""}
+      {/* Trade plan grid — compact */}
+      <div className="grid grid-cols-2 gap-px bg-[rgba(0,255,127,0.08)] border-b border-[rgba(0,255,127,0.12)] flex-none">
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">ENTRY</div>
+          <div className="text-[11px] font-bold tabular-nums matrix-text-cyan leading-tight">{fmtPrice(s.entry)}</div>
+        </div>
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">STOP</div>
+          <div className="text-[11px] font-bold tabular-nums matrix-text-red leading-tight">{fmtPrice(s.stop)}</div>
+        </div>
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">TP1</div>
+          <div className="text-[11px] font-bold tabular-nums matrix-text leading-tight">{fmtPrice(s.tp1)}</div>
+        </div>
+        <div className="bg-[#020803] px-1.5 py-1">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest">TP2/3</div>
+          <div className="text-[11px] font-bold tabular-nums matrix-text-amber leading-tight truncate">
+            {fmtPrice(s.tp2)} / {fmtPrice(s.tp3)}
           </div>
         </div>
-        <div className="bg-[#020803] p-2">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">STOP</div>
-          <div className="text-sm font-bold tabular-nums matrix-text-red">{fmtPrice(s.stop)}</div>
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">risk: {fmtPrice(risk)}</div>
-        </div>
-        <div className="bg-[#020803] p-2">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">TP1</div>
-          <div className="text-sm font-bold tabular-nums matrix-text">{fmtPrice(s.tp1)}</div>
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">+{fmtPrice(reward1)} ({rr.toFixed(2)}R)</div>
-        </div>
-        <div className="bg-[#020803] p-2">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">TP2</div>
-          <div className="text-sm font-bold tabular-nums matrix-text">{fmtPrice(s.tp2)}</div>
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">+{fmtPrice(Math.abs(s.tp2 - s.entry))}</div>
-        </div>
-        <div className="bg-[#020803] p-2 col-span-2">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest">TP3 [EXTENSION]</div>
-          <div className="text-sm font-bold tabular-nums matrix-text-amber">{fmtPrice(s.tp3)}</div>
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tabular-nums">+{fmtPrice(Math.abs(s.tp3 - s.entry))} ({risk > 0 ? (Math.abs(s.tp3 - s.entry) / risk).toFixed(2) : "0"}R)</div>
-        </div>
       </div>
 
-      {/* Reasoning */}
-      <div className="border-b border-[rgba(0,255,127,0.12)] p-2 max-h-32 overflow-y-auto matrix-scroll">
-        <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest mb-1">REASONING</div>
-        <ul className="space-y-0.5">
-          {s.reasoning.map((r, i) => (
-            <li key={i} className="text-[9px] matrix-text flex gap-1">
-              <span className="matrix-text-amber">▸</span>
-              <span>{r}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Confluences */}
-      {s.confluences.length > 0 && (
-        <div className="border-b border-[rgba(0,255,127,0.12)] p-2 max-h-24 overflow-y-auto matrix-scroll">
-          <div className="text-[8px] text-[var(--matrix-green-dim)] tracking-widest mb-1">CONFLUENCES</div>
-          <div className="flex flex-wrap gap-1">
-            {s.confluences.map((c, i) => (
-              <span
-                key={i}
-                className="text-[8px] px-1.5 py-0.5 border border-[rgba(0,255,127,0.3)] matrix-text"
-                style={{ background: "rgba(0,255,127,0.05)" }}
-              >
-                {c}
-              </span>
+      {/* Reasoning + Confluences + Invalidation — scrollable region */}
+      <div className="flex-1 min-h-0 overflow-y-auto matrix-scroll">
+        <div className="p-1.5 border-b border-[rgba(0,255,127,0.08)]">
+          <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">REASONING</div>
+          <ul className="space-y-0.5">
+            {s.reasoning.map((r, i) => (
+              <li key={i} className="text-[8px] matrix-text flex gap-1 leading-tight">
+                <span className="matrix-text-amber flex-none">▸</span>
+                <span className="break-words">{r}</span>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
-      )}
 
-      {/* Invalidation */}
-      <div className="border-b border-[rgba(0,255,127,0.12)] p-2">
-        <div className="text-[8px] text-[var(--matrix-red)] tracking-widest mb-0.5">INVALIDATION</div>
-        <div className="text-[9px] matrix-text-dim">{s.invalidation}</div>
+        {s.confluences.length > 0 && (
+          <div className="p-1.5 border-b border-[rgba(0,255,127,0.08)]">
+            <div className="text-[7px] text-[var(--matrix-green-dim)] tracking-widest mb-0.5">CONFLUENCES</div>
+            <div className="flex flex-wrap gap-0.5">
+              {s.confluences.map((c, i) => (
+                <span
+                  key={i}
+                  className="text-[7px] px-1 py-0.5 border border-[rgba(0,255,127,0.3)] matrix-text leading-tight"
+                  style={{ background: "rgba(0,255,127,0.05)" }}
+                >
+                  {c}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="p-1.5">
+          <div className="text-[7px] text-[var(--matrix-red)] tracking-widest mb-0.5">INVALIDATION</div>
+          <div className="text-[8px] matrix-text-dim leading-tight">{s.invalidation}</div>
+        </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="p-2 mt-auto">
+      {/* Action buttons — compact */}
+      <div className="p-1.5 mt-auto flex-none">
         {position.status === "IN_POSITION" ? (
           <button
             onClick={() => closePosition("MANUAL CLOSE", livePrice)}
-            className="w-full py-2 text-xs font-bold tracking-widest bg-[var(--matrix-red)] text-black hover:opacity-80"
-            style={{ boxShadow: "0 0 8px rgba(255,59,59,0.6)" }}
+            className="w-full py-1.5 text-[10px] font-bold tracking-widest bg-[var(--matrix-red)] text-black hover:opacity-80"
+            style={{ boxShadow: "0 0 6px rgba(255,59,59,0.5)" }}
           >
-            ✕ CLOSE POSITION @ MKT
+            ✕ CLOSE @ MKT
           </button>
         ) : canExecute ? (
           <div className="grid grid-cols-2 gap-1">
@@ -195,23 +185,23 @@ export default function AISignalPanel() {
                   confidence: s.confidence,
                 });
               }}
-              className="py-2 text-xs font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)]"
-              style={{ boxShadow: "0 0 8px rgba(0,255,127,0.6)" }}
+              className="py-1.5 text-[10px] font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)]"
+              style={{ boxShadow: "0 0 6px rgba(0,255,127,0.5)" }}
             >
-              ▶ EXEC {s.side}
+              ▶ {s.side}
             </button>
             <button
               onClick={() => {
                 useTradingStore.getState().setAiSignal(null);
               }}
-              className="py-2 text-xs font-bold tracking-widest border border-[rgba(0,255,127,0.3)] text-[var(--matrix-green-dim)] hover:text-[var(--matrix-green)]"
+              className="py-1.5 text-[10px] font-bold tracking-widest border border-[rgba(0,255,127,0.3)] text-[var(--matrix-green-dim)] hover:text-[var(--matrix-green)]"
             >
-              ✕ DISMISS
+              ✕ SKIP
             </button>
           </div>
         ) : (
-          <div className="w-full py-2 text-xs text-center matrix-text-dim border border-[rgba(0,255,127,0.15)]">
-            {isNeutral ? "● NO HIGH-CONFIDENCE EDGE" : isExpired ? "● SIGNAL EXPIRED" : position.status === "IN_POSITION" ? "● IN POSITION" : "● LOW CONFIDENCE"}
+          <div className="w-full py-1.5 text-[10px] text-center matrix-text-dim border border-[rgba(0,255,127,0.15)]">
+            {isNeutral ? "● NO EDGE" : isExpired ? "● EXPIRED" : position.status === "IN_POSITION" ? "● IN POS" : "● LOW CONF"}
           </div>
         )}
       </div>

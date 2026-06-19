@@ -91,18 +91,18 @@ export default function SMCPanel() {
   };
 
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>◈ SMC STRUCTURES [SMART MONEY]</span>
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>◈ SMC STRUCT</span>
         <span className="text-[var(--matrix-green-dim)]">{activeTimeframe}</span>
       </div>
 
       {/* Trend + counts */}
-      <div className="border-b border-[rgba(0,255,127,0.12)] p-2">
-        <div className="flex items-center justify-between text-[10px] mb-1.5">
-          <span className="text-[var(--matrix-green-dim)] tracking-widest">TREND BIAS</span>
+      <div className="border-b border-[rgba(0,255,127,0.12)] p-1.5 flex-none">
+        <div className="flex items-center justify-between text-[9px] mb-1">
+          <span className="text-[var(--matrix-green-dim)] tracking-widest">TREND</span>
           <span
-            className="font-bold text-[11px] tracking-widest"
+            className="font-bold text-[10px] tracking-widest"
             style={{
               color: analysis.trendBias === "BULL" ? "var(--matrix-green)" : analysis.trendBias === "BEAR" ? "var(--matrix-red)" : "var(--matrix-amber)",
             }}

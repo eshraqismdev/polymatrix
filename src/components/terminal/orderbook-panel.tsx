@@ -48,14 +48,14 @@ export default function OrderBookPanel() {
   const imbalance = totalVol > 0 ? ((bidVol - askVol) / totalVol) * 100 : 0;
 
   return (
-    <div className="matrix-panel flex flex-col h-full">
-      <div className="matrix-header">
-        <span>⊞ DEX ORDERBOOK</span>
+    <div className="matrix-panel flex flex-col h-full overflow-hidden">
+      <div className="matrix-header flex-none">
+        <span>⊞ DEX BOOK</span>
         <span className="text-[var(--matrix-green-dim)]">L2</span>
       </div>
 
       {/* Header row */}
-      <div className="flex justify-between px-2 py-1 text-[8px] text-[var(--matrix-green-dim)] tracking-widest border-b border-[rgba(0,255,127,0.12)]">
+      <div className="flex justify-between px-1.5 py-0.5 text-[7px] text-[var(--matrix-green-dim)] tracking-widest border-b border-[rgba(0,255,127,0.12)] flex-none">
         <span>PRICE</span>
         <span>SIZE</span>
       </div>
