@@ -64,8 +64,20 @@ export default function AISignalPanel() {
     <div className="matrix-panel flex flex-col h-full">
       <div className="matrix-header">
         <span>⚡ AI SIGNAL ENGINE</span>
-        <span className={isExpired ? "text-[var(--matrix-red)]" : "matrix-text-cyan"}>
-          {isExpired ? "EXPIRED" : "ACTIVE"}
+        <span className="flex items-center gap-1.5">
+          <span
+            className="px-1.5 py-0.5 text-[8px] font-bold tracking-widest"
+            style={{
+              color: aiSignal.source === "AI" ? "var(--matrix-cyan)" : "var(--matrix-amber)",
+              border: `1px solid ${aiSignal.source === "AI" ? "var(--matrix-cyan)" : "var(--matrix-amber)"}55`,
+              background: aiSignal.source === "AI" ? "rgba(0,255,224,0.08)" : "rgba(255,176,0,0.08)",
+            }}
+          >
+            {aiSignal.source === "AI" ? "● LLM" : "● SMC"}
+          </span>
+          <span className={isExpired ? "text-[var(--matrix-red)]" : "matrix-text-cyan"}>
+            {isExpired ? "EXPIRED" : "ACTIVE"}
+          </span>
         </span>
       </div>
 

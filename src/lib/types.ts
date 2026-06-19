@@ -117,6 +117,7 @@ export interface AISignal {
   confluences: string[];
   invalidation: string;
   validityMs: number;
+  source?: "AI" | "FALLBACK";
 }
 
 export interface Position {

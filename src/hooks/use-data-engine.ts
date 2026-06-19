@@ -196,14 +196,14 @@ export function useDataEngine() {
     }
   }, [store.candlesByTf, store.livePrice]);
 
-  // === AI signal generation — every 25s ===
+  // === AI signal generation — every 15s ===
   useEffect(() => {
     if (!mountedRef.current) return;
     const candles = store.candlesByTf[store.activeTimeframe];
     if (!candles || candles.length < 30 || store.livePrice <= 0) return;
 
     const now = Date.now();
-    if (now - lastAiFetchRef.current < 22000) return;
+    if (now - lastAiFetchRef.current < 14000) return;
     lastAiFetchRef.current = now;
 
     let cancelled = false;
@@ -263,23 +263,28 @@ export function useDataEngine() {
         const sig = await fetchAISignal(payload);
         if (cancelled || !sig) return;
         const prevSig = store.aiSignal;
-        // Only update if signal side or key levels changed, or if expired
-        const changed =
-          !prevSig ||
-          prevSig.side !== sig.side ||
-          Math.abs(prevSig.entry - sig.entry) > sig.entry * 0.0005 ||
-          Date.now() - prevSig.ts > prevSig.validityMs;
-        if (changed) {
+
+        // Update if: no previous signal, side changed, levels moved meaningfully,
+        // signal expired, or source changed (AI ↔ FALLBACK)
+        const levelsMoved = !prevSig ||
+          Math.abs(prevSig.entry - sig.entry) > sig.entry * 0.0008 ||
+          Math.abs(prevSig.stop - sig.stop) > sig.stop * 0.0008 ||
+          Math.abs(prevSig.tp1 - sig.tp1) > sig.tp1 * 0.0008;
+        const sideChanged = !prevSig || prevSig.side !== sig.side;
+        const sourceChanged = !prevSig || prevSig.source !== sig.source;
+        const expired = prevSig && Date.now() - prevSig.ts > prevSig.validityMs * 0.75;
+
+        if (sideChanged || levelsMoved || sourceChanged || expired || !prevSig) {
           store.setAiSignal(sig);
-          // Push to feed if not neutral
-          if (sig.side !== "NEUTRAL") {
+          // Push to feed if non-neutral AND side changed or first signal
+          if (sig.side !== "NEUTRAL" && (sideChanged || !prevSig)) {
             const feedSig: TradeSignal = {
               id: sig.id,
               ts: sig.ts,
               side: sig.side as "LONG" | "SHORT",
               type: "INFO",
               price: sig.entry,
-              note: `AI ${sig.side} sig | entry=${sig.entry.toFixed(2)} stop=${sig.stop.toFixed(2)} tp1=${sig.tp1.toFixed(2)} conf=${sig.confidence.toFixed(0)}% rr=${sig.rr.toFixed(2)}`,
+              note: `[${sig.source ?? "AI"}] ${sig.side} sig | entry=${sig.entry.toFixed(2)} stop=${sig.stop.toFixed(2)} tp1=${sig.tp1.toFixed(2)} conf=${sig.confidence.toFixed(0)}% rr=${sig.rr.toFixed(2)}`,
               confidence: sig.confidence,
             };
             store.pushSignal(feedSig);

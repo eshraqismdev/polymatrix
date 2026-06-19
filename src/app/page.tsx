@@ -44,67 +44,70 @@ export default function Home() {
       )}
 
       {/* Top bar */}
-      <div className="relative z-10">
+      <div className="relative z-10 flex-none">
         <TopBar />
       </div>
 
       {/* Ticker strip */}
-      <div className="relative z-10">
+      <div className="relative z-10 flex-none">
         <TickerStrip />
       </div>
 
-      {/* Main grid */}
-      <main className="relative z-10 flex-1 grid grid-cols-12 gap-1 p-1 min-h-0">
-        {/* Left column: Orderflow + Orderbook */}
-        <aside className="col-span-12 lg:col-span-2 grid grid-rows-2 gap-1 min-h-0 hidden lg:grid">
-          <div className="min-h-0">
-            <OrderflowPanel />
-          </div>
-          <div className="min-h-0">
-            <OrderBookPanel />
-          </div>
-        </aside>
-
-        {/* Center: Chart + MTF + SMC */}
-        <section className="col-span-12 lg:col-span-7 grid grid-rows-[1fr_180px] gap-1 min-h-0">
-          {/* Chart */}
-          <div className="matrix-panel relative min-h-0 overflow-hidden">
-            <div className="matrix-header">
-              <span>▣ PROFESSIONAL CHART — BTCUSDT SCALP MATRIX</span>
-              <div className="flex items-center gap-3">
-                <LayerControl />
-                <span className="text-[var(--matrix-green-dim)]">
-                  TICK: <span className="matrix-text">{lastTick ? fmtTimeUTC(lastTick) : "--:--:-- UTC"}</span>
-                </span>
-              </div>
-            </div>
-            <div className="absolute inset-0 top-7">
-              <TradingChart height={520} />
+      {/* Main content — chart full width on top, panels below */}
+      <main className="relative z-10 flex-1 flex flex-col gap-1 p-1 min-h-0">
+        {/* === FULL-WIDTH CHART ON TOP === */}
+        <section className="matrix-panel relative min-h-0 flex-none" style={{ height: "62%" }}>
+          <div className="matrix-header">
+            <span>▣ PROFESSIONAL CHART — BTCUSDT SCALP MATRIX</span>
+            <div className="flex items-center gap-3">
+              <LayerControl />
+              <span className="text-[var(--matrix-green-dim)]">
+                TICK: <span className="matrix-text">{lastTick ? fmtTimeUTC(lastTick) : "--:--:-- UTC"}</span>
+              </span>
             </div>
           </div>
-
-          {/* Bottom row under chart: MTF + SMC + Signal feed */}
-          <div className="grid grid-cols-3 gap-1 min-h-0">
-            <MTFPanel />
-            <SMCPanel />
-            <SignalFeed />
+          <div className="absolute inset-0 top-7">
+            <TradingChart height={460} />
           </div>
         </section>
 
-        {/* Right column: AI signal + Position */}
-        <aside className="col-span-12 lg:col-span-3 grid grid-rows-2 gap-1 min-h-0 hidden lg:grid">
-          <div className="min-h-0">
+        {/* === ALL OTHER PANELS BELOW — HORIZONTAL GRID === */}
+        <section className="grid grid-cols-12 gap-1 min-h-0 flex-1" style={{ height: "38%" }}>
+          {/* Orderflow */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
+            <OrderflowPanel />
+          </div>
+          {/* Order book */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
+            <OrderBookPanel />
+          </div>
+          {/* MTF confirmation */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
+            <MTFPanel />
+          </div>
+          {/* SMC structures */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
+            <SMCPanel />
+          </div>
+          {/* AI signal */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
             <AISignalPanel />
           </div>
-          <div className="min-h-0">
+          {/* Position manager */}
+          <div className="col-span-12 md:col-span-6 lg:col-span-2 min-h-0">
             <PositionPanel />
           </div>
-        </aside>
+        </section>
+
+        {/* === SIGNAL FEED — full-width strip at very bottom === */}
+        <section className="flex-none" style={{ height: "120px" }}>
+          <SignalFeed />
+        </section>
       </main>
 
       {/* Footer status bar */}
       <footer
-        className="relative z-10 matrix-panel border-t border-[rgba(0,255,127,0.25)] flex items-center justify-between px-3 py-1 text-[9px] text-[var(--matrix-green-dim)] tracking-widest"
+        className="relative z-10 matrix-panel border-t border-[rgba(0,255,127,0.25)] flex items-center justify-between px-3 py-1 text-[9px] text-[var(--matrix-green-dim)] tracking-widest flex-none"
         style={{ fontFamily: "var(--font-jetbrains), monospace" }}
       >
         <div className="flex items-center gap-4">
@@ -112,7 +115,7 @@ export default function Home() {
           <span>v2.7.1</span>
           <span className="hidden md:inline">DEX: HYPERLIQUID</span>
           <span className="hidden md:inline">|</span>
-          <span className="hidden md:inline">AI: GLM-4 SMC-ENGINE</span>
+          <span className="hidden md:inline">AI: GLM-4 + SMC-FALLBACK ENGINE</span>
           <span className="hidden md:inline">|</span>
           <span className="hidden md:inline">DATA: HL-API + BINANCE-FALLBACK</span>
         </div>
