@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
-import { useTradingStore, openPosition, closePosition, checkPosition } from "@/lib/store";
-import { analyzeSMC, analyzeOrderflow, buildTradePlan } from "@/lib/smc";
+import { useTradingStore } from "@/lib/store";
+import { analyzeSMC, analyzeOrderflow } from "@/lib/smc";
 import type { Candle } from "@/lib/types";
 import { fmtPrice, fmtTime } from "@/lib/format";
 
@@ -100,10 +100,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     showFVG,
     showOB,
     showVolume,
-    position,
-    mode,
-    aiSignal,
-    pushSignal,
     symbol,
   } = useTradingStore();
 
@@ -133,8 +129,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     if (candles.length < 30) return null;
     const smc = analyzeSMC(candles);
     const orderflow = analyzeOrderflow(candles, 80);
-    const plan = buildTradePlan(candles, smc, orderflow, livePrice || candles.at(-1)!.c);
-    return { smc, orderflow, plan };
+    return { smc, orderflow };
   }, [candles, livePrice]);
 
   // === Compute auto-fit price bounds ===
@@ -151,16 +146,8 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       if (c.l < pMin) pMin = c.l;
       if (c.h > pMax) pMax = c.h;
     }
-    // Include AI signal + position levels so they're always visible in auto-fit
+    // Include live price in auto-fit bounds
     const extraLevels: number[] = [];
-    if (position.entry) extraLevels.push(position.entry);
-    if (position.stop) extraLevels.push(position.stop);
-    if (position.tp1) extraLevels.push(position.tp1);
-    if (position.tp2) extraLevels.push(position.tp2);
-    if (position.tp3) extraLevels.push(position.tp3);
-    if (aiSignal && aiSignal.side !== "NEUTRAL") {
-      extraLevels.push(aiSignal.entry, aiSignal.stop, aiSignal.tp1, aiSignal.tp2, aiSignal.tp3);
-    }
     if (livePrice) extraLevels.push(livePrice);
     for (const lv of extraLevels) {
       if (isFinite(lv) && lv > 0) {
@@ -171,7 +158,7 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     if (!isFinite(pMin) || !isFinite(pMax)) return { min: 0, max: 1 };
     const pad = (pMax - pMin) * 0.08 || pMax * 0.01;
     return { min: pMin - pad, max: pMax + pad };
-  }, [candles, view.offset, view.visibleCount, position, aiSignal, livePrice]);
+  }, [candles, view.offset, view.visibleCount, livePrice]);
 
   // === Effective bounds — auto-fit or manual ===
   const effectiveBounds = useMemo<{ min: number; max: number }>(() => {
@@ -471,80 +458,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ctx.fillText(livePrice.toFixed(2), padL + chartW + 4, y + 3);
     }
 
-    // === AI SIGNAL ZONES ===
-    if (aiSignal && aiSignal.side !== "NEUTRAL") {
-      const zones: { price: number; color: string; label: string; fillAlpha: number }[] = [
-        { price: aiSignal.entry, color: "#00ffe0", label: `AI ENTRY`, fillAlpha: 0.08 },
-        { price: aiSignal.stop, color: "#ff3b3b", label: `AI STOP`, fillAlpha: 0.06 },
-        { price: aiSignal.tp1, color: "#00ff7f", label: `AI TP1`, fillAlpha: 0.06 },
-        { price: aiSignal.tp2, color: "#5fffaa", label: `AI TP2`, fillAlpha: 0.04 },
-        { price: aiSignal.tp3, color: "#ffb000", label: `AI TP3`, fillAlpha: 0.04 },
-      ];
-      for (const z of zones) {
-        const y = yOf(z.price);
-        if (y < padT || y > padT + chartH) continue;
-        ctx.fillStyle = z.color + Math.floor(z.fillAlpha * 255).toString(16).padStart(2, "0");
-        ctx.fillRect(padL, y - 1, chartW, 2);
-        ctx.strokeStyle = z.color;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 3]);
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL + chartW, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = z.color;
-        ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
-      }
-      const entryY = yOf(aiSignal.entry);
-      const stopY = yOf(aiSignal.stop);
-      const tp1Y = yOf(aiSignal.tp1);
-      ctx.fillStyle = "rgba(255, 59, 59, 0.06)";
-      ctx.fillRect(padL, Math.min(entryY, stopY), chartW, Math.abs(stopY - entryY));
-      ctx.fillStyle = "rgba(0, 255, 127, 0.06)";
-      ctx.fillRect(padL, Math.min(entryY, tp1Y), chartW, Math.abs(tp1Y - entryY));
-    }
-
-    // === OPEN POSITION ZONES ===
-    if (position.status === "IN_POSITION" && position.entry && position.stop && position.tp1) {
-      const zones: { price: number; color: string; label: string }[] = [
-        { price: position.entry, color: "#00ffe0", label: `POS ENTRY` },
-        { price: position.stop, color: "#ff3b3b", label: `POS STOP` },
-        { price: position.tp1, color: "#00ff7f", label: `POS TP1` },
-      ];
-      if (position.tp2) zones.push({ price: position.tp2, color: "#5fffaa", label: `POS TP2` });
-      if (position.tp3) zones.push({ price: position.tp3, color: "#ffb000", label: `POS TP3` });
-      for (const z of zones) {
-        const y = yOf(z.price);
-        if (y < padT || y > padT + chartH) continue;
-        ctx.strokeStyle = z.color;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(padL, y);
-        ctx.lineTo(padL + chartW, y);
-        ctx.stroke();
-        ctx.fillStyle = z.color;
-        ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        ctx.fillText(`${z.label} ${z.price.toFixed(2)}`, padL + 6, y - 3);
-      }
-      if (position.liquidation) {
-        const y = yOf(position.liquidation);
-        if (y > padT && y < padT + chartH) {
-          ctx.strokeStyle = "rgba(255, 0, 212, 0.6)";
-          ctx.setLineDash([2, 2]);
-          ctx.beginPath();
-          ctx.moveTo(padL, y);
-          ctx.lineTo(padL + chartW, y);
-          ctx.stroke();
-          ctx.setLineDash([]);
-          ctx.fillStyle = "rgba(255, 0, 212, 0.9)";
-          ctx.font = '8px "JetBrains Mono", monospace';
-          ctx.fillText(`LIQ ${position.liquidation.toFixed(2)}`, padL + 6, y - 3);
-        }
-      }
-    }
-
     // === TIME AXIS LABELS ===
     ctx.fillStyle = "rgba(0, 255, 127, 0.5)";
     ctx.font = '8px "JetBrains Mono", monospace';
@@ -669,8 +582,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
       ["LIQ BSL", "#ffb000"],
       ["LIQ SSL", "#00ffe0"],
       ["SWEEP", "#ff00d4"],
-      ["AI LVL", "#00ffe0"],
-      ["POS LVL", "rgba(255,176,0,0.8)"],
     ];
     ctx.font = '8px "JetBrains Mono", monospace';
     const lx0 = padL + chartW - 200;
@@ -690,8 +601,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     analysis,
     livePrice,
     prevPrice,
-    position,
-    aiSignal,
     activeTimeframe,
     symbol,
     showSMC,
@@ -704,31 +613,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
     renderTick,
     getLayout,
   ]);
-
-  // === AUTO-EXECUTE AI SIGNAL ===
-  const { autoExecute } = useTradingStore();
-  useEffect(() => {
-    if (!autoExecute || !aiSignal || !analysis?.plan) return;
-    if (position.status === "IN_POSITION") return;
-    if (aiSignal.side === "NEUTRAL") return;
-    if (aiSignal.confidence < 60) return;
-    const sig = aiSignal;
-    openPosition(sig.side, sig.entry, sig.stop, sig.tp1, sig.tp2, sig.tp3, 10, 1);
-    pushSignal({
-      id: Math.random().toString(36).slice(2),
-      ts: Date.now(),
-      side: sig.side,
-      type: "ENTRY",
-      price: sig.entry,
-      note: `[AUTO-EXEC] AI ${sig.side} conf=${sig.confidence.toFixed(0)}% | ${mode}`,
-      confidence: sig.confidence,
-    });
-  }, [autoExecute, aiSignal, position.status]);
-
-  // === CHECK POSITION ON PRICE UPDATE ===
-  useEffect(() => {
-    if (livePrice > 0) checkPosition(livePrice);
-  }, [livePrice]);
 
   // === MOUSE HANDLERS ===
   const onMouseDown = useCallback((e: React.MouseEvent) => {
@@ -1240,20 +1124,6 @@ export default function TradingChart({ height = 560 }: ChartProps) {
           className="px-1.5 h-6 text-[9px] font-bold tracking-wider border border-[rgba(0,255,224,0.4)] text-[var(--matrix-cyan)] hover:bg-[rgba(0,255,224,0.1)] bg-[rgba(2,8,3,0.7)]"
         >⟲</button>
       </div>
-
-      {/* EXEC button (when trade plan available) */}
-      {analysis?.plan && position.status === "FLAT" && (
-        <button
-          onClick={() => {
-            const p = analysis.plan!;
-            openPosition(p.side, p.entry, p.stop, p.tp1, p.tp2, p.tp3, 10, 1);
-          }}
-          className="absolute top-9 right-[90px] px-3 py-1 text-[10px] font-bold tracking-widest bg-[var(--matrix-green)] text-black hover:bg-[var(--matrix-green-bright)] z-10"
-          style={{ fontFamily: "var(--font-jetbrains), monospace", boxShadow: "0 0 8px rgba(0,255,127,0.6)" }}
-        >
-          ▶ EXEC {analysis.plan.side} {analysis.plan.rr.toFixed(1)}R
-        </button>
-      )}
 
       {/* Help text — bottom left */}
       <div

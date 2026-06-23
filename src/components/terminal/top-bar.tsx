@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useTradingStore } from "@/lib/store";
-import { fmtPrice, fmtPct, fmtCompact } from "@/lib/format";
+import { fmtPrice, fmtPct } from "@/lib/format";
 import { ALL_TF, type Timeframe } from "@/lib/format";
-import type { TradingMode, ConnectionState } from "@/lib/types";
+import type { ConnectionState } from "@/lib/types";
 
 const SYMBOLS = [
   { v: "BTCUSDT", label: "BTC/USDT" },
@@ -50,11 +50,6 @@ export default function TopBar() {
     ticker,
     connection,
     dexName,
-    mode,
-    setMode,
-    autoExecute,
-    toggleAutoExecute,
-    pnl,
   } = useTradingStore();
 
   const [clock, setClock] = useState("--:--:--");
@@ -71,6 +66,7 @@ export default function TopBar() {
   const priceColor = priceUp ? "var(--matrix-green)" : "var(--matrix-red)";
   const change24h = ticker?.changePct24h ?? 0;
   const funding = ticker?.fundingRate ?? 0;
+  const volume24h = ticker?.volume24h ?? 0;
 
   return (
     <header
@@ -86,7 +82,16 @@ export default function TopBar() {
           NEO//LIQUID
         </span>
         <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden lg:inline">
-          v2.7.1
+          v3.0
+        </span>
+      </div>
+
+      {/* LIVE STREAM indicator */}
+      <div className="flex items-center gap-2 px-2 md:px-3 border-r border-[rgba(0,255,127,0.18)] flex-none">
+        <span className="inline-flex items-center gap-1.5 px-2 py-1 text-[9px] md:text-[10px] font-bold tracking-widest bg-[var(--matrix-red)] text-black matrix-blink"
+          style={{ boxShadow: "0 0 8px rgba(255,59,59,0.6)" }}
+        >
+          ● LIVE STREAM
         </span>
       </div>
 
@@ -107,7 +112,7 @@ export default function TopBar() {
         </select>
       </div>
 
-      {/* Price ticker — hide funding on small, show on md+ */}
+      {/* Price ticker */}
       <div className="hidden md:flex items-center gap-3 px-3 lg:px-4 border-r border-[rgba(0,255,127,0.18)] min-w-0 lg:min-w-[230px] flex-none">
         <div className="flex flex-col">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">PRICE</span>
@@ -159,77 +164,23 @@ export default function TopBar() {
 
       <div className="flex-1 min-w-0" />
 
-      {/* PnL mini-summary — lg+ only */}
+      {/* 24h volume — streaming-relevant stat */}
       <div className="hidden lg:flex items-center gap-3 px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
         <div className="flex flex-col">
-          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">EQUITY</span>
-          <span className="text-xs font-bold tabular-nums matrix-text">
-            ${pnl.equity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">uPnL</span>
-          <span
-            className="text-xs font-bold tabular-nums"
-            style={{ color: pnl.unrealized >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" }}
-          >
-            {pnl.unrealized >= 0 ? "+" : "-"}${Math.abs(pnl.unrealized).toFixed(2)}
+          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">24H VOL</span>
+          <span className="text-xs font-bold tabular-nums matrix-text-cyan">
+            ${(volume24h / 1e6).toFixed(1)}M
           </span>
         </div>
         <div className="hidden xl:flex flex-col">
-          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">WR</span>
+          <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest">OI</span>
           <span className="text-xs font-bold tabular-nums matrix-text-amber">
-            {pnl.trades > 0 ? `${pnl.winRate.toFixed(1)}%` : "—"}
+            {(ticker?.openInterest ?? 0).toFixed(1)}
           </span>
         </div>
       </div>
 
-      {/* Auto-execute — compact */}
-      <div className="flex items-center gap-1.5 px-2 md:px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
-        <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden sm:inline">AUTO</span>
-        <button
-          onClick={toggleAutoExecute}
-          className={`px-1.5 md:px-2 py-1 text-[9px] md:text-[10px] font-bold tracking-wider ${
-            autoExecute
-              ? "bg-[var(--matrix-amber)] text-black"
-              : "text-[var(--matrix-green-dim)] border border-[rgba(0,255,127,0.3)]"
-          }`}
-          style={autoExecute ? { boxShadow: "0 0 8px rgba(255,176,0,0.6)" } : {}}
-          title="When ON, AI signals are auto-executed in current mode"
-        >
-          {autoExecute ? "ARM" : "OFF"}
-        </button>
-      </div>
-
-      {/* Mode toggle PAPER / REAL */}
-      <div className="flex items-center gap-0 border-l border-[rgba(0,255,127,0.18)] flex-none">
-        {(["PAPER", "REAL"] as TradingMode[]).map((m) => {
-          const active = mode === m;
-          const color = m === "REAL" ? "var(--matrix-red)" : "var(--matrix-green)";
-          return (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-2 md:px-3 py-1.5 text-[10px] md:text-[11px] font-bold tracking-widest transition-all ${
-                active ? "" : "text-[var(--matrix-green-dim)] hover:text-[var(--matrix-green)]"
-              }`}
-              style={
-                active
-                  ? {
-                      background: color,
-                      color: "#000",
-                      boxShadow: `0 0 8px ${color}`,
-                    }
-                  : {}
-              }
-            >
-              {m}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* DEX status — compact on small */}
+      {/* DEX status */}
       <div className="flex flex-col items-end justify-center px-2 md:px-3 border-l border-[rgba(0,255,127,0.18)] flex-none">
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] text-[var(--matrix-green-dim)] tracking-widest hidden sm:inline">DEX</span>

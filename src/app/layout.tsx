@@ -15,18 +15,19 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NEO//LIQUID — SMC AI Trading Terminal",
+  title: "NEO//LIQUID — Live SMC Market Analytics (Educational)",
   description:
-    "AI smart-money scalp trading terminal for BTCUSDT on Hyperliquid. SMC + orderflow + multi-timeframe liquidity analysis with paper/real mode.",
+    "Live Smart Money Concepts (SMC) market analytics terminal for BTCUSDT on Hyperliquid DEX. Educational stream — NOT financial advice. Real-time orderflow, liquidity mapping, and multi-timeframe structure analysis.",
   keywords: [
     "SMC",
     "smart money concepts",
     "Hyperliquid",
     "BTCUSDT",
-    "scalping",
     "orderflow",
     "liquidity",
-    "AI trading",
+    "market analysis",
+    "educational",
+    "live stream",
   ],
   authors: [{ name: "NEO//LIQUID" }],
   icons: { icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg" },

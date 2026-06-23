@@ -1,12 +1,6 @@
-// Core trading types for NEO//LIQUID terminal
+// Core types for NEO//LIQUID market analytics terminal (educational / streaming)
 
-export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1D" | "1W";
-
-export type TradingMode = "PAPER" | "REAL";
-
-export type Side = "LONG" | "SHORT";
-
-export type PositionStatus = "FLAT" | "IN_POSITION" | "PENDING";
+export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4H" | "1D" | "1W";
 
 export interface Candle {
   t: number; // open time (ms)
@@ -50,7 +44,7 @@ export interface SwingPoint {
   price: number;
   t: number;
   kind: "HIGH" | "LOW";
-  strength: number; // number of bars confirmed
+  strength: number;
 }
 
 export interface Structure {
@@ -61,16 +55,14 @@ export interface Structure {
   top: number;
   bottom: number;
   label: string;
-  // optional reference price level
   price?: number;
-  // is this structure still valid (un-mitigated)
   mitigated?: boolean;
 }
 
 export interface MTFBias {
   timeframe: Timeframe;
   trend: "BULL" | "BEAR" | "RANGE";
-  bias: number; // -100..100, positive=bull
+  bias: number; // -100..100
   lastStructure: StructureKind | null;
   liquidityAbove: number | null;
   liquidityBelow: number | null;
@@ -78,72 +70,37 @@ export interface MTFBias {
 }
 
 export interface OrderflowStats {
-  cvd: number;          // cumulative volume delta
-  delta: number;        // current candle delta
-  deltaEMA: number;     // smoothed delta
-  buyPressure: number;  // 0..1
-  sellPressure: number; // 0..1
+  cvd: number;
+  delta: number;
+  deltaEMA: number;
+  buyPressure: number;
+  sellPressure: number;
   absorption: "BUY" | "SELL" | "NONE";
   volumeNode: { price: number; volume: number }[];
-  poc: number; // point of control
-  vah: number; // value area high
-  val: number; // value area low
+  poc: number;
+  vah: number;
+  val: number;
 }
 
-export interface TradeSignal {
+// Market event log entry — replaces trade signals for streaming
+export type MarketEventType =
+  | "STRUCTURE"
+  | "SWEEP"
+  | "FVG"
+  | "OB"
+  | "LIQUIDITY"
+  | "ABSORPTION"
+  | "BIAS_SHIFT"
+  | "INFO";
+
+export interface MarketEvent {
   id: string;
   ts: number;
-  side: Side;
-  type: "ENTRY" | "STOP" | "TP1" | "TP2" | "TP3" | "CANCEL" | "INFO" | "ALERT";
+  type: MarketEventType;
+  side: "BULL" | "BEAR" | "NEUTRAL";
   price: number;
-  size?: number;
-  note: string;
-  confidence?: number;
-}
-
-export interface AISignal {
-  id: string;
-  ts: number;
-  side: Side | "NEUTRAL";
-  entry: number;
-  stop: number;
-  tp1: number;
-  tp2: number;
-  tp3: number;
-  rr: number; // risk-reward ratio
-  confidence: number; // 0..100
-  bias: "BULL" | "BEAR" | "NEUTRAL";
-  reasoning: string[];
-  confluences: string[];
-  invalidation: string;
-  validityMs: number;
-  source?: "AI" | "FALLBACK";
-}
-
-export interface Position {
-  status: PositionStatus;
-  side: Side | null;
-  entry: number | null;
-  stop: number | null;
-  tp1: number | null;
-  tp2: number | null;
-  tp3: number | null;
-  size: number;        // in base currency
-  leverage: number;
-  openedAt: number | null;
-  liquidation: number | null;
-  marginUsed: number | null;
-}
-
-export interface PnLState {
-  realized: number;
-  unrealized: number;
-  equity: number;
-  balance: number;
-  winRate: number;
-  trades: number;
-  wins: number;
-  losses: number;
+  label: string;
+  detail: string;
 }
 
 export interface TickerStat {

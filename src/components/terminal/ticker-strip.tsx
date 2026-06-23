@@ -10,7 +10,7 @@ interface TickerItem {
 }
 
 export default function TickerStrip() {
-  const { ticker, livePrice, mode, position, pnl } = useTradingStore();
+  const { ticker } = useTradingStore();
 
   if (!ticker) {
     return (
@@ -20,19 +20,28 @@ export default function TickerStrip() {
     );
   }
 
+  // 24h range position
+  const rangePos = ticker.high24h > ticker.low24h
+    ? ((ticker.price - ticker.low24h) / (ticker.high24h - ticker.low24h)) * 100
+    : 50;
+  // Premium
+  const premium = ticker.oraclePrice > 0
+    ? ((ticker.markPrice - ticker.oraclePrice) / ticker.oraclePrice) * 100
+    : 0;
+
   const items: TickerItem[] = [
     { label: "LAST", value: fmtPrice(ticker.price), color: ticker.changePct24h >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" },
     { label: "24H CHG", value: fmtPct(ticker.changePct24h), color: ticker.changePct24h >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" },
     { label: "24H HIGH", value: fmtPrice(ticker.high24h), color: "var(--matrix-green)" },
     { label: "24H LOW", value: fmtPrice(ticker.low24h), color: "var(--matrix-red)" },
+    { label: "RANGE POS", value: `${rangePos.toFixed(1)}%`, color: "var(--matrix-amber)" },
     { label: "24H VOL", value: `$${fmtCompact(ticker.volume24h)}`, color: "var(--matrix-cyan)" },
     { label: "FUNDING", value: `${(ticker.fundingRate * 100).toFixed(4)}%`, color: "var(--matrix-amber)" },
     { label: "MARK", value: fmtPrice(ticker.markPrice), color: "var(--matrix-cyan)" },
     { label: "ORACLE", value: fmtPrice(ticker.oraclePrice), color: "var(--matrix-green-dim)" },
-    { label: "OI", value: ticker.openInterest > 0 ? fmtCompact(ticker.openInterest) : "—", color: "var(--matrix-magenta)" },
-    { label: "EQUITY", value: `$${pnl.equity.toFixed(0)}`, color: "var(--matrix-green)" },
-    { label: "MODE", value: mode, color: mode === "REAL" ? "var(--matrix-red)" : "var(--matrix-green)" },
-    { label: "POS", value: position.status === "IN_POSITION" ? (position.side ?? "") : "FLAT", color: position.status === "IN_POSITION" ? "var(--matrix-cyan)" : "var(--matrix-green-dim)" },
+    { label: "PREMIUM", value: `${premium >= 0 ? "+" : ""}${premium.toFixed(3)}%`, color: premium >= 0 ? "var(--matrix-green)" : "var(--matrix-red)" },
+    { label: "OPEN INT", value: ticker.openInterest > 0 ? fmtCompact(ticker.openInterest) : "—", color: "var(--matrix-magenta)" },
+    { label: "FEED", value: "HYPERLIQUID", color: "var(--matrix-cyan)" },
   ];
 
   return (

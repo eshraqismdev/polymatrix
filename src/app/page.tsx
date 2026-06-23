@@ -9,8 +9,8 @@ import LayerControl from "@/components/terminal/layer-control";
 import MTFPanel from "@/components/terminal/mtf-panel";
 import OrderflowPanel from "@/components/terminal/orderflow-panel";
 import SMCPanel from "@/components/terminal/smc-panel";
-import AISignalPanel from "@/components/terminal/ai-signal-panel";
-import PositionPanel from "@/components/terminal/position-panel";
+import MarketStatsPanel from "@/components/terminal/market-stats-panel";
+import StreamInfoPanel from "@/components/terminal/stream-info-panel";
 import OrderBookPanel from "@/components/terminal/orderbook-panel";
 import SignalFeed from "@/components/terminal/signal-feed";
 import MatrixRain from "@/components/terminal/matrix-rain";
@@ -53,13 +53,6 @@ export default function Home() {
         <TickerStrip />
       </div>
 
-      {/*
-        Main content — responsive layout
-        - XL (≥1280px): chart 62% height, 6 panels in 6-col row, signal feed at bottom
-        - LG (1024-1279px): chart 58% height, 6 panels in 6-col row
-        - MD (768-1023px): chart 55% height, 6 panels in 3-col x 2-row grid
-        - SM (<768px): chart 50% height, 2-col grid for panels, signal feed hidden into a tab
-      */}
       <main className="relative z-10 flex-1 flex flex-col gap-1 p-1 min-h-0 md:min-h-0">
         {/* === FULL-WIDTH CHART ON TOP === */}
         <section
@@ -67,7 +60,7 @@ export default function Home() {
           style={{ height: "clamp(240px, 48vh, 65vh)" }}
         >
           <div className="matrix-header">
-            <span className="truncate">▣ PROFESSIONAL CHART — BTCUSDT SCALP MATRIX</span>
+            <span className="truncate">▣ LIVE CHART — BTCUSDT SMC ANALYTICS</span>
             <div className="flex items-center gap-2 flex-none">
               <div className="hidden md:block">
                 <LayerControl />
@@ -84,10 +77,7 @@ export default function Home() {
 
         {/*
           === ANALYTICS PANELS GRID — RESPONSIVE ===
-          XL/LG (≥1024px): 6 cols x 1 row, fixed height
-          MD (768-1023px): 3 cols x 2 rows, fixed height
-          SM (<768px): 2 cols x 3 rows, panel min-height enforced, section grows
-          Responsive rules in globals.css under .analytics-grid
+          6 panels: Orderflow | Orderbook | MTF | SMC | Market Stats | Stream Info
         */}
         <section
           className="analytics-grid grid gap-1 min-h-0 flex-none"
@@ -111,33 +101,33 @@ export default function Home() {
           <div className="col-span-6 sm:col-span-3 md:col-span-2 lg:col-span-1 min-h-0 min-w-0">
             <SMCPanel />
           </div>
-          {/* AI signal */}
+          {/* Market stats (replaces Position) */}
           <div className="col-span-6 sm:col-span-3 md:col-span-2 lg:col-span-1 min-h-0 min-w-0">
-            <AISignalPanel />
+            <MarketStatsPanel />
           </div>
-          {/* Position manager */}
+          {/* Stream info (replaces AI Signal) */}
           <div className="col-span-6 sm:col-span-3 md:col-span-2 lg:col-span-1 min-h-0 min-w-0">
-            <PositionPanel />
+            <StreamInfoPanel />
           </div>
         </section>
 
-        {/* === SIGNAL FEED — full-width strip at very bottom === */}
+        {/* === MARKET EVENTS LOG — full-width strip at very bottom === */}
         <section className="flex-none" style={{ height: "clamp(70px, 10vh, 130px)" }}>
           <SignalFeed />
         </section>
       </main>
 
-      {/* Footer status bar — compact on small screens */}
+      {/* Footer status bar with educational disclaimer for YouTube compliance */}
       <footer
         className="relative z-10 matrix-panel border-t border-[rgba(0,255,127,0.25)] flex items-center justify-between px-2 md:px-3 py-1 text-[8px] md:text-[9px] text-[var(--matrix-green-dim)] tracking-widest flex-none"
         style={{ fontFamily: "var(--font-jetbrains), monospace" }}
       >
         <div className="flex items-center gap-2 md:gap-4 min-w-0">
           <span className="matrix-text-bright flex-none">NEO//LIQUID</span>
-          <span className="hidden sm:inline flex-none">v2.7.1</span>
+          <span className="hidden sm:inline flex-none">v3.0</span>
           <span className="hidden md:inline">DEX: HYPERLIQUID</span>
           <span className="hidden lg:inline">|</span>
-          <span className="hidden lg:inline">AI: GLM-4 + SMC-FALLBACK</span>
+          <span className="hidden lg:inline matrix-text-amber">⚠ EDUCATIONAL — NOT FINANCIAL ADVICE</span>
           <span className="hidden xl:inline">|</span>
           <span className="hidden xl:inline">DATA: HL-API + BINANCE</span>
         </div>
@@ -145,7 +135,7 @@ export default function Home() {
           <span className={connection === "LIVE" ? "matrix-text" : "matrix-text-amber"}>
             ● {connection}
           </span>
-          <span className="hidden sm:inline">SCALP MATRIX</span>
+          <span className="hidden sm:inline">ANALYTICS TERMINAL</span>
         </div>
       </footer>
     </div>
