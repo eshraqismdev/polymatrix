@@ -1,6 +1,18 @@
 # Polymatrix
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-%23000000?style=for-the-badge&logo=vercel&logoColor=white)](https://smc.eshraqism.com/)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github)](https://github.com/eshraqismdev/polymatrix)
+
 A modern, full-stack web application built with Next.js, Tailwind CSS, shadcn/ui, TypeScript, and Prisma. This project provides a robust foundation for building scalable web applications with an elegant user interface and type-safe database operations.
+
+**[🌐 View Live Demo](https://smc.eshraqism.com/)** | **[📖 View Repository](https://github.com/eshraqismdev/polymatrix)**
+
+## 🔗 Live Demo
+
+Experience the application in action:
+
+- **Website**: [https://smc.eshraqism.com/](https://smc.eshraqism.com/)
+- **Repository**: [https://github.com/eshraqismdev/polymatrix](https://github.com/eshraqismdev/polymatrix)
 
 ## ✨ Features
 
@@ -215,7 +227,17 @@ NEXTAUTH_SECRET="generate-a-random-secret"
 
 ## 🚀 Deployment
 
+### Current Deployment
+
+This project is currently deployed and running at: **[https://smc.eshraqism.com/](https://smc.eshraqism.com/)**
+
 ### Deploy to Vercel (Recommended)
+
+Click the button below to deploy to Vercel with one click:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Feshraqismdev%2Fpolymatrix)
+
+Or manually:
 
 1. Push your code to GitHub
 2. Connect your repository to [Vercel](https://vercel.com)
@@ -230,6 +252,16 @@ This project can be deployed to any platform that supports Node.js:
 - **Render**: Simple deployment with GitHub integration
 - **Heroku**: Use the Node.js buildpack
 - **Docker**: The project can be containerized
+
+### Environment Variables for Production
+
+Make sure to set these in your deployment platform's dashboard:
+
+```
+DATABASE_URL=your_production_database_url
+NEXTAUTH_URL=your_production_domain
+NEXTAUTH_SECRET=generate_a_strong_secret
+```
 
 ## 🤝 Contributing
 
